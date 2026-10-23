@@ -28,9 +28,9 @@ class UnionTests(unittest.TestCase):
 class OrganizationModesTests(unittest.TestCase):
     def invoke(self, mode='public', members='all', findings=()):
         catalog = committed_catalog()
-        live = [{'name': item['name'], 'description': item['about'], 'private': False, 'archived': False}
+        live = [{'name': item['name'], 'description': item['about'], 'private': False, 'archived': False, 'fork': False}
                 for group in catalog['groups'] for item in group['repositories']]
-        live.append({'name': '.github', 'description': catalog['organization']['about'], 'private': False, 'archived': False})
+        live.append({'name': '.github', 'description': catalog['organization']['about'], 'private': False, 'archived': False, 'fork': False})
         with contextlib.redirect_stdout(io.StringIO()), patch.object(checks, 'fetch_repositories', return_value=live), patch.object(checks.settings, 'check_online', return_value=list(findings)) as online, patch.object(checks.settings, 'check_repository', return_value=list(findings)) as member:
             status = checks.main(['--root', str(ROOT / 'fixtures/organization'), '--organization', 'example-org',
                                  '--standard-repository', 'example-org/.github', '--mode', mode, '--members', members])
@@ -53,9 +53,9 @@ class OrganizationModesTests(unittest.TestCase):
 
     def test_standard_repository_name_is_an_input(self):
         catalog = committed_catalog()
-        live = [{'name': item['name'], 'description': item['about'], 'private': False, 'archived': False}
+        live = [{'name': item['name'], 'description': item['about'], 'private': False, 'archived': False, 'fork': False}
                 for group in catalog['groups'] for item in group['repositories']]
-        live.append({'name': 'standard', 'description': catalog['organization']['about'], 'private': False, 'archived': False})
+        live.append({'name': 'standard', 'description': catalog['organization']['about'], 'private': False, 'archived': False, 'fork': False})
         checks.compare_membership(catalog, live, 'standard')
         checks.compare_about(catalog, live, 'standard')
 
