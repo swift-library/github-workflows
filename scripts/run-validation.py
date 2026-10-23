@@ -25,8 +25,7 @@ def swift_flags(config, traits=None):
     if 'build_system' in config:
         flags += ['--build-system', config['build_system']]
     if traits is not None:
-        # The contract calls the default set "default"; SwiftPM spells it "defaults".
-        flags += ['--traits', ','.join('defaults' if item == 'default' else item for item in traits)] if traits else ['--disable-default-traits']
+        flags += ['--traits', ','.join(traits)] if traits else ['--disable-default-traits']
     return flags
 
 

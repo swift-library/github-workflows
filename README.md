@@ -33,7 +33,7 @@ See [the JSON Schema](schemas/swift-package.schema.json).
 | `package_directory` | Package root inside the repository; default `.`. |
 | `test_configurations` | Nonempty list of `debug` and/or `release`; default `["debug"]`. |
 | `build_system` | `native` or `xcode`, passed to SwiftPM commands. Omission uses SwiftPM's default. |
-| `traits` | List of trait sets, e.g. `[["default"], [], ["Experimental", "default"]]`. `default` maps to SwiftPM `defaults`; an empty set disables defaults. Omission uses default traits. |
+| `traits` | List of trait sets, e.g. `[["default"], [], ["Experimental", "default"]]`. `default` enables SwiftPM default traits; an empty set disables them. Omission uses default traits. |
 | `environment` | String map exported to validation commands. The terminal script declares its own sandbox environment. |
 | `platforms.linux` | Nonempty array of `{name, image}` with `@sha256:<64 hex digits>` image references. |
 | `platforms.apple` | Nonempty array of `{name, platform, scheme, test?, runner?, xcode?}`. Platform is `iOS`, `tvOS`, `watchOS` or `visionOS`; test defaults to false. |

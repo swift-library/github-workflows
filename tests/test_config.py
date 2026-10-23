@@ -128,7 +128,7 @@ class ExecutionTests(unittest.TestCase):
         self.assertEqual(len(commands), 9)
         self.assertEqual(sum(c[:2] == ['swift', 'test'] for c in commands), 6)
         self.assertTrue(all('--build-system' in c for c in commands))
-        self.assertIn('Feature,defaults', commands[3])
+        self.assertIn('Feature,default', commands[3])
         self.assertIn('--disable-default-traits', commands[-1])
         self.assertEqual(run.call_args.args[2]['VALUE'], 'declared')
 
