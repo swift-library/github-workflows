@@ -296,7 +296,7 @@ jobs:
       with:
         name: demo-recording-${{ needs.configure.outputs.execution }}-${{ strategy.job-index }}
         path: ${{ runner.temp }}/demo-recording/${{ strategy.job-index }}/recording.json
-        retention-days: 1
+        retention-days: 7
         if-no-files-found: ignore
     if: needs.configure.outputs.demo_declared == 'true'
   commands:
