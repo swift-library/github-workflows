@@ -36,8 +36,8 @@ def committed_catalog():
     return json.loads((ROOT / "fixtures/organization/profile/catalog.json").read_text(encoding="utf-8"))
 
 
-def repository(name, *, archived=False, private=False):
-    return {"name": name, "archived": archived, "private": private}
+def repository(name, *, archived=False, private=False, fork=False):
+    return {"name": name, "archived": archived, "private": private, "fork": fork}
 
 
 class Response(io.BytesIO):
@@ -54,9 +54,10 @@ class MembershipTests(unittest.TestCase):
             for group in self.catalog["groups"] for item in group["repositories"]
         ]
 
-    def test_matching_membership_excludes_archived_private_and_profile(self):
+    def test_matching_membership_excludes_archived_private_forks_and_profile(self):
         checks.compare_membership(self.catalog, self.repositories + [
             repository(".github"), repository("old", archived=True), repository("secret", private=True),
+            repository("upstream", fork=True),
         ])
 
     def test_missing_and_extra_are_reported_together(self):
@@ -73,6 +74,12 @@ class MembershipTests(unittest.TestCase):
                 catalog["groups"][0]["repositories"].append({"name": name, "outcome": "Example.", "icon": "https://example.test/icon.svg"})
                 with self.assertRaisesRegex(ValueError, "extra in catalog: " + re.escape(name)):
                     checks.compare_membership(catalog, self.repositories + [repository(name, archived=archived)])
+
+    def test_fork_in_catalog_is_extra(self):
+        catalog = copy.deepcopy(self.catalog)
+        catalog["groups"][0]["repositories"].append({"name": "upstream", "outcome": "Example.", "icon": "https://example.test/icon.svg"})
+        with self.assertRaisesRegex(ValueError, "extra in catalog: upstream"):
+            checks.compare_membership(catalog, self.repositories + [repository("upstream", fork=True)])
 
     def test_pagination_and_authorization_with_injected_responses(self):
         first = "https://api.github.com/orgs/example-org/repos?type=public&per_page=100"

@@ -65,6 +65,7 @@ def fetch_repositories(organization, token=None, *, opener=urlopen):
             or not repository["name"]
             or not isinstance(repository.get("archived"), bool)
             or not isinstance(repository.get("private"), bool)
+            or not isinstance(repository.get("fork"), bool)
             for repository in page
         ):
             raise ValueError("GitHub API returned an invalid repository list")
@@ -81,10 +82,14 @@ def fetch_repositories(organization, token=None, *, opener=urlopen):
 
 
 def compare_membership(catalog, repositories, standard_repository=".github"):
+    # Forks are upstream source lines, not the organization's own products.
     expected = {
         repository["name"]
         for repository in repositories
-        if not repository["private"] and not repository["archived"] and repository["name"] != standard_repository
+        if not repository["private"]
+        and not repository["archived"]
+        and not repository["fork"]
+        and repository["name"] != standard_repository
     }
     actual = {
         repository["name"]
