@@ -80,7 +80,8 @@ def execute(root, job, entry, config=None):
         if job == 'compiler' and entry['name'] == config['compilers'][0]['name']:
             traits += config.get('traits', [])
         for trait_set in traits:
-            flags = ['--disable-index-store', *swift_flags(config, trait_set)]
+            # Linux XCTest discovers tests through the index store; macOS does not need it.
+            flags = [*([] if job == 'linux' else ['--disable-index-store']), *swift_flags(config, trait_set)]
             for configuration in configurations:
                 command = ['swift', 'test', '-c', configuration, *flags]
                 if job == 'linux':

@@ -46,8 +46,9 @@ Apple and command entries default to the last compiler's runner and toolchain.
 An explicit Xcode override uses that Xcode's bundled Swift. Docs and demo also
 use the last compiler. Package and script paths must stay inside the checkout.
 
-Every `swift build` and `swift test` invocation uses `--disable-index-store`
-alongside any configured build-system flags; CI does not use the index.
+Every macOS `swift build` and `swift test` invocation uses `--disable-index-store`
+alongside any configured build-system flags; CI does not use the index. Linux
+keeps the index store because XCTest discovers tests through it.
 
 The documentation build emits graphs for library and executable modules.
 Each declared target's DocC conversion receives only its main graph and

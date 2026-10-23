@@ -223,10 +223,10 @@ class ExecutionTests(unittest.TestCase):
         self.assertEqual([call.args[0] for call in run.call_args_list], [
             ['docker', 'run', '--rm', '-v', str(self.root) + ':/workspace',
              '-w', '/workspace/Sources', '-e', 'CUSTOM', entry['image'],
-             'swift', 'test', '-c', 'debug', '--disable-index-store', '--build-system', 'native'],
+             'swift', 'test', '-c', 'debug', '--build-system', 'native'],
             ['docker', 'run', '--rm', '-v', str(self.root) + ':/workspace',
              '-w', '/workspace/Sources', '-e', 'CUSTOM', entry['image'],
-             'swift', 'test', '-c', 'release', '--disable-index-store', '--build-system', 'native'],
+             'swift', 'test', '-c', 'release', '--build-system', 'native'],
         ])
         self.assertTrue(all(call.args[2]['CUSTOM'] == 'value' for call in run.call_args_list))
 
