@@ -67,10 +67,6 @@ publishes them.
 }
 ```
 
-The [member mapping](docs/member-mapping.md) explains all eighteen inventoried
-repositories and links their retained checks to these options. Schema-checked
-migration examples live in `fixtures/members/`.
-
 ## Calling validation and policy
 
 ```yaml

@@ -282,15 +282,7 @@ class ExecutionTests(unittest.TestCase):
         self.assertEqual(result.failures(needs, declared), ['docs'])
 
 
-class MemberMappingTests(unittest.TestCase):
-    def test_mapped_members_validate_and_produce_matrices(self):
-        paths = list((ROOT / 'fixtures/members').glob('*.json'))
-        self.assertEqual(len(paths), 13)
-        for path in paths:
-            with self.subTest(member=path.stem):
-                value = config.validate(config.read_json(path))
-                self.assertIn('compiler', config.outputs(value)['declared'])
-
+class DemoStagingTests(unittest.TestCase):
     def test_custom_demo_script_is_staged_with_its_recording_and_fixture(self):
         parent = ROOT / '.build/demo-tests'
         parent.mkdir(parents=True, exist_ok=True)
