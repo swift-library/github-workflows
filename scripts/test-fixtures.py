@@ -58,6 +58,10 @@ def main():
     jobs = {'macos': ['format', 'compiler', 'docs', 'commands'], 'linux': ['linux'], 'apple': ['apple']}[args.group]
     for job in jobs:
         exercise('passing', job)
+    if 'docs' in jobs:
+        exercise('docs-multiple-targets', 'docs')
+    if 'apple' in jobs:
+        exercise('apple-plugin', 'apple')
     for name, (job, marker) in CASES.items():
         if job in jobs:
             exercise(name, job, failure=marker or '')

@@ -11,6 +11,8 @@ import sys
 
 from swift_package_config import inside, load, matrices
 
+XCODEBUILD = ['xcodebuild', '-skipPackagePluginValidation', '-skipMacroValidation']
+
 
 def run(command, cwd, environment, *, capture=False):
     print('+ ' + ' '.join(map(str, command)), flush=True)
@@ -33,7 +35,7 @@ def simulator(entry, root, environment):
     sdk = {'iOS': 'iphonesimulator', 'tvOS': 'appletvsimulator',
            'watchOS': 'watchsimulator', 'visionOS': 'xrsimulator'}[platform]
     expected = run(['xcrun', '--sdk', sdk, '--show-sdk-version'], root, environment, capture=True).strip()
-    run(['xcodebuild', '-downloadPlatform', platform], root, environment)
+    run([*XCODEBUILD, '-downloadPlatform', platform], root, environment)
     inventory = json.loads(run(['xcrun', 'simctl', 'list', '-j'], root, environment, capture=True))
     runtimes = [item for item in inventory['runtimes'] if item.get('isAvailable')
                 and item['name'].startswith(platform + ' ') and item['version'] == expected]
@@ -85,24 +87,35 @@ def execute(root, job, entry, config=None):
         run(['swift', 'format', 'lint', '--strict', '--recursive', '--configuration',
              str(root / '.swift-format'), *config.get('format', {}).get('paths', ['Package.swift', 'Sources', 'Tests'])], package, environment)
     elif job == 'apple':
-        command = ['xcodebuild', '-scheme', entry['scheme'], '-derivedDataPath', str(package / '.build/apple'),
+        command = [*XCODEBUILD, '-scheme', entry['scheme'], '-derivedDataPath', str(package / '.build/apple'),
                    '-destination', 'generic/platform=' + entry['platform'], 'CODE_SIGNING_ALLOWED=NO']
         run([*command, 'build'], package, environment)
         if entry.get('test', False):
             device = simulator(entry, package, environment)
             try:
                 run(['xcrun', 'simctl', 'bootstatus', device, '-b'], package, environment)
-                run(['xcodebuild', '-scheme', entry['scheme'], '-destination', 'id=' + device,
+                run([*XCODEBUILD, '-scheme', entry['scheme'], '-destination', 'id=' + device,
                      '-derivedDataPath', str(package / '.build/apple'), 'test'], package, environment)
             finally:
                 run(['xcrun', 'simctl', 'delete', device], package, environment)
     elif job == 'docs':
+        description = json.loads(run(['swift', 'package', 'describe', '--type', 'json'],
+                                     package, environment, capture=True))
+        modules = {target['name']: target['c99name'] for target in description['targets']}
         for target in config['docs']['targets']:
             output = package / '.build/docc' / target
-            symbols = output / 'symbols'
-            symbols.mkdir(parents=True, exist_ok=True)
+            all_symbols = output / 'all-symbols'
+            all_symbols.mkdir(parents=True, exist_ok=True)
             run(['swift', 'build', '--target', target, *swift_flags(config), '-Xswiftc', '-emit-symbol-graph',
-                 '-Xswiftc', '-emit-symbol-graph-dir', '-Xswiftc', str(symbols)], package, environment)
+                 '-Xswiftc', '-emit-symbol-graph-dir', '-Xswiftc', str(all_symbols)], package, environment)
+            # SwiftPM also emits dependency graphs; each DocC conversion owns one module.
+            symbols = output / 'symbols'
+            if symbols.exists():
+                shutil.rmtree(symbols)
+            symbols.mkdir()
+            module = modules[target]
+            for graph in [all_symbols / (module + '.symbols.json'), *all_symbols.glob(module + '@*.symbols.json')]:
+                shutil.copyfile(graph, symbols / graph.name)
             catalogs = list((package / 'Sources' / target).glob('*.docc'))
             if len(catalogs) > 1:
                 raise ValueError('Expected at most one documentation catalog per target')

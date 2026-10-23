@@ -51,10 +51,12 @@ class ConfigurationTests(unittest.TestCase):
 
     def test_every_fixture_schema_and_matrix(self):
         paths = list((ROOT / 'fixtures').glob('*/.github/swift-package.json'))
-        self.assertEqual(len(paths), 9)
+        self.assertEqual(len(paths), 11)
+        declared_counts = {'docs-multiple-targets': 4, 'apple-plugin': 4}
         for path in paths:
             with self.subTest(fixture=path.parent.parent.name):
-                self.assertEqual(len(config.outputs(config.load(path.parent.parent))['declared']), 8)
+                self.assertEqual(len(config.outputs(config.load(path.parent.parent))['declared']),
+                                 declared_counts.get(path.parent.parent.name, 8))
         config.load(ROOT)
 
     def test_empty_release_minimum_fails_configuration(self):
@@ -137,6 +139,70 @@ class ExecutionTests(unittest.TestCase):
             with self.assertRaises(subprocess.CalledProcessError):
                 runner.execute(self.root, 'apple', entry, self.config)
         self.assertEqual(run.call_args.args[0], ['xcrun', 'simctl', 'delete', 'device'])
+
+    def test_every_xcodebuild_skips_plugin_and_macro_validation(self):
+        inventory = {'runtimes': [{
+            'isAvailable': True, 'name': 'iOS 18.0', 'version': '18.0',
+            'identifier': 'runtime',
+            'supportedDeviceTypes': [{'name': 'iPhone 16', 'identifier': 'phone'}],
+        }]}
+
+        def execute(command, *args, **kwargs):
+            if command[:2] == ['xcrun', '--sdk']:
+                return '18.0\n'
+            if command[:3] == ['xcrun', 'simctl', 'list']:
+                return json.dumps(inventory)
+            if command[:3] == ['xcrun', 'simctl', 'create']:
+                return 'device\n'
+
+        for tests in (False, True):
+            with self.subTest(tests=tests), patch.object(runner, 'run', side_effect=execute) as run:
+                entry = {**self.config['platforms']['apple'][0], 'test': tests}
+                runner.execute(self.root, 'apple', entry, self.config)
+                commands = [call.args[0] for call in run.call_args_list if call.args[0][0] == 'xcodebuild']
+                self.assertEqual(len(commands), 3 if tests else 1)
+                self.assertIn('generic/platform=iOS', commands[0])
+                for command in commands:
+                    self.assertIn('-skipPackagePluginValidation', command)
+                    self.assertIn('-skipMacroValidation', command)
+
+    def test_docs_converts_only_the_targets_own_symbol_graphs(self):
+        parent = ROOT / '.build/config-tests'
+        parent.mkdir(parents=True, exist_ok=True)
+        with tempfile.TemporaryDirectory(dir=parent) as directory:
+            root = Path(directory)
+            targets = ['Feature', 'FeatureCore', 'Hyphen-Feature']
+            modules = {'Feature': 'Feature', 'FeatureCore': 'FeatureCore', 'Hyphen-Feature': 'Hyphen_Feature'}
+            self.config['docs']['targets'] = targets
+            converted = []
+
+            def execute(command, *args, **kwargs):
+                if command[:3] == ['swift', 'package', 'describe']:
+                    return json.dumps({'targets': [{'name': name, 'c99name': module}
+                                                   for name, module in modules.items()]})
+                elif command[:2] == ['swift', 'build']:
+                    symbols = Path(command[-1])
+                    for module in [*modules.values(), 'MacroImplementation']:
+                        for suffix in ('.symbols.json', '@Swift.symbols.json'):
+                            (symbols / (module + suffix)).write_text(module + suffix)
+                    (symbols / 'Feature.symbols.json.backup').write_text('backup')
+                else:
+                    self.assertEqual(command[:3], ['xcrun', 'docc', 'convert'])
+                    target = command[command.index('--fallback-display-name') + 1]
+                    symbols = Path(command[command.index('--additional-symbol-graph-dir') + 1])
+                    expected = {modules[target] + '.symbols.json', modules[target] + '@Swift.symbols.json'}
+                    self.assertEqual({path.name for path in symbols.iterdir()}, expected)
+                    for path in symbols.iterdir():
+                        self.assertEqual(path.read_text(), path.name)
+                    self.assertIn('--warnings-as-errors', command)
+                    converted.append(target)
+
+            with patch.object(runner, 'run', side_effect=execute):
+                runner.execute(root, 'docs', {}, self.config)
+                for target in targets:
+                    (root / '.build/docc' / target / 'symbols/Stale.symbols.json').write_text('stale')
+                runner.execute(root, 'docs', {}, self.config)
+            self.assertEqual(converted, targets * 2)
 
     def test_aggregate_rejects_declared_skip_failure_and_cancellation(self):
         declared = ['configure', 'compiler', 'format']
