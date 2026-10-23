@@ -141,6 +141,8 @@ def main(argv=None, *, root=ROOT):
         prefix = args.organization + '/'
         declaration = {**declaration, 'repositories': {
             name: member for name, member in declaration['repositories'].items() if name.startswith(prefix)}}
+        if not declaration['repositories']:
+            raise ValueError('The declaration lists no repositories of the requested organization')
         if not re.fullmatch(r'[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+', args.catalog_repository):
             raise ValueError('Expected a catalog owner/repository identity')
         if not args.catalog_repository.startswith(prefix):

@@ -108,6 +108,16 @@ class SplitOrganizationTests(unittest.TestCase):
                 self.assertEqual(checks.main([*args, '--members', 'other-org/core']), 1)
                 member.assert_not_called()
 
+            only_other = copy.deepcopy(declaration)
+            only_other['repositories'] = {'other-org/core': declaration['repositories']['other-org/core']}
+            (declaration_root / 'MAINTENANCE.md').write_text(
+                '<!-- settings-declaration -->\n```json\n' + json.dumps(only_other) + '\n```\n')
+            with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()), \
+                    patch.object(checks, 'fetch_repositories', return_value=live), \
+                    patch.object(checks.settings, 'check_online', return_value=[]) as online:
+                self.assertEqual(checks.main(args), 1)
+                online.assert_not_called()
+
     def test_workflow_requires_both_resolved_revisions_to_be_full_shas(self):
         import subprocess
         source = (ROOT / '.github/workflows/organization.yml').read_text()
