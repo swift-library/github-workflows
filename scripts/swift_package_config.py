@@ -86,7 +86,7 @@ def matrices(config):
 
 
 def outputs(config):
-    result = {'timeout': config.get('timeout_minutes', 45), 'environment': config.get('environment', {}),
+    result = {'timeout': config.get('timeout_minutes', 45),
               'declared': ['configure', *[job for job, entries in matrices(config).items() if entries]]}
     for job, entries in matrices(config).items():
         result[job] = {'include': entries}

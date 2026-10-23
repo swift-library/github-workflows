@@ -185,10 +185,21 @@ files work from `swift-library/github-workflows` and
 `agents-tools/github-workflows`. Validation requires `actions: read` to retrieve
 compiler-version artifacts for the aggregate check.
 
+## Terminal demo
+
 The presentation action has one reference, in `swift-package.yml`. Demo fixture
 setup reads that pin with `scripts/check-ci.py --demo-revision` and installs the
 toolchain's declared Node version and locked dependencies. Demo checks use
 `recording-only: true` to compare the committed recording with fresh CLI output.
+The member's `environment` applies to the demo build. The recorder constructs
+the child's environment from its sandbox defaults and the terminal script's
+`env`, so every environment value needed to reproduce the demo belongs in that
+script.
+
+On drift, the action writes the regenerated `recording.json` to a dedicated
+runner temporary directory. The failed matrix entry uploads it as a
+`demo-recording-<execution>-<index>` artifact retained for one day. Download and
+commit that file beside the script when the output change is intended.
 
 ## Local validation
 

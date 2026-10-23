@@ -13,7 +13,6 @@ jobs:
       minimum: ${{ steps.configuration.outputs.minimum }}
       execution: ${{ steps.configuration.outputs.execution }}
       declared: ${{ steps.configuration.outputs.declared }}
-      environment: ${{ steps.configuration.outputs.environment }}
       compiler: ${{ steps.configuration.outputs.compiler }}
       compiler_declared: ${{ steps.configuration.outputs.compiler_declared }}
       format: ${{ steps.configuration.outputs.format }}
@@ -284,13 +283,21 @@ jobs:
         ENTRY: ${{ toJSON(matrix) }}
       run: python3 .shared/scripts/run-validation.py demo --root member --entry "$ENTRY"
     - uses: showxu/skills/skills/github-readme-design/scripts@db02bcb24426f4add0393444f868f1bffdf06f9d
-      env: ${{ fromJSON(needs.configure.outputs.environment) }}
       with:
         asset: terminal
         command: check
         recording-only: true
         assets: ${{ steps.validation.outputs.demo_assets }}
         executable: ${{ steps.validation.outputs.demo_executable }}
+        artifact-dir: ${{ runner.temp }}/demo-recording/${{ strategy.job-index }}
+    - name: Upload regenerated recording
+      if: failure()
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      with:
+        name: demo-recording-${{ needs.configure.outputs.execution }}-${{ strategy.job-index }}
+        path: ${{ runner.temp }}/demo-recording/${{ strategy.job-index }}/recording.json
+        retention-days: 1
+        if-no-files-found: ignore
     if: needs.configure.outputs.demo_declared == 'true'
   commands:
     needs: configure
