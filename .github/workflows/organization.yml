@@ -27,25 +27,11 @@ jobs:
     runs-on: ubuntu-24.04
     permissions:
       contents: read
-      actions: read
     steps:
-    - name: Resolve the executing reusable workflow revision
-      id: workflow
-      env:
-        GH_TOKEN: ${{ github.token }}
-        WORKFLOW_FILE: organization.yml
-      shell: bash
-      run: "set -euo pipefail\nrecord=$(gh api \"repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/attempts/$GITHUB_RUN_ATTEMPT\"\
-        )\nreferences=$(jq --arg file \"/.github/workflows/$WORKFLOW_FILE@\" '[.referenced_workflows[]? | select(.path | contains($file))]\
-        \ | unique_by([.path, .sha])' <<< \"$record\")\nif [[ $(jq 'length' <<< \"$references\") == 0 && ${GITHUB_REPOSITORY##*/}\
-        \ == github-workflows ]]; then\n  printf 'repository=%s\\nsha=%s\\n' \"$GITHUB_REPOSITORY\" \"$GITHUB_WORKFLOW_SHA\"\
-        \ >> \"$GITHUB_OUTPUT\"\nelse\n  jq -e 'length == 1 and (.[0].sha | test(\"^[0-9a-f]{40}$\"))' <<< \"$references\"\
-        \ >/dev/null\n  jq -r '.[0] | \"repository=\" + (.path | split(\"/\")[0:2] | join(\"/\")), \"sha=\" + .sha' <<< \"\
-        $references\" >> \"$GITHUB_OUTPUT\"\nfi"
     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       with:
-        repository: ${{ steps.workflow.outputs.repository }}
-        ref: ${{ steps.workflow.outputs.sha }}
+        repository: ${{ job.workflow_repository }}
+        ref: ${{ job.workflow_sha }}
         path: .shared
         persist-credentials: false
     - name: Validate standard revision

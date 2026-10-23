@@ -116,7 +116,6 @@ jobs:
     needs: validate
     permissions:
       contents: write
-      actions: read
     uses: swift-library/github-workflows/.github/workflows/swift-package-release.yml@<full-sha> # vX.Y.Z
     with:
       tag: ${{ github.ref_name }}
@@ -154,13 +153,12 @@ release. Third-party actions are pinned by full SHA with version comments.
 The toolchain action can also be called directly at the same repository pin.
 
 Reusable workflows check out their own scripts separately from the member.
-GitHub has no `job.workflow_sha` expression, and `github.workflow_sha` belongs
-to the caller. The bootstrap uses the current run attempt's
-[`referenced_workflows[].sha`](https://docs.github.com/en/rest/actions/workflow-runs#get-a-workflow-run-attempt)
-and repository path, requiring `actions: read`. A unique matching workflow
-filename is required. Same-repository local calls in this repository use the
-caller's workflow SHA when GitHub omits a referenced-workflow entry. No script
-source is embedded in workflow YAML and there are no workflow generators.
+The checkout uses GitHub's
+[`job.workflow_repository` and `job.workflow_sha`](https://docs.github.com/en/actions/reference/workflows-and-actions/contexts#job-context)
+to select the repository and exact commit defining each job. The same workflow
+files work from `swift-library/github-workflows` and
+`agents-tools/github-workflows`. Validation requires `actions: read` to retrieve
+compiler-version artifacts for the aggregate check.
 
 The presentation action has one reference, in `swift-package.yml`, currently
 pinned to the requested all-zero placeholder. Demo CI is explicitly

@@ -29,13 +29,13 @@ class ReleaseTests(unittest.TestCase):
             with self.subTest(value=value), patch.object(release.subprocess, 'check_output', side_effect=['a' * 40, 'tag', 'a' * 40, 'c' * 40]), patch.object(release, 'api', return_value=value), self.assertRaises(ValueError):
                 release.authenticate(ROOT, 'example/package', 'v1.2.3', 'a' * 40, ROOT / '.build/release-tests')
 
-    def test_expected_workflow_failures_do_not_accept_bootstrap_failures(self):
+    def test_expected_workflow_failures_require_the_intended_rejection_step(self):
         needs = {name: {'result': 'failure'} for name in ci.REJECTIONS}
         needs['checks'] = {'result': 'success'}
         jobs = [{'name': name + ' / ' + job, 'steps': [{'name': step, 'conclusion': 'failure'}]}
                 for name, (job, step) in ci.REJECTIONS.items()]
         ci.check(needs, jobs)
-        jobs[0]['steps'][0]['name'] = 'Resolve the executing reusable workflow revision'
+        jobs[0]['steps'][0]['name'] = 'Install schema validator'
         with self.assertRaises(ValueError):
             ci.check(needs, jobs)
 

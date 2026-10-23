@@ -28,7 +28,6 @@ jobs:
   policy:
     permissions:
       contents: read
-      actions: read
     uses: ./.github/workflows/policy.yml
     with:
       allow-terms: |
@@ -40,7 +39,6 @@ jobs:
   release-rejection:
     permissions:
       contents: write
-      actions: read
     uses: ./.github/workflows/swift-package-release.yml
     with:
       tag: fixture-invalid-tag
@@ -48,7 +46,6 @@ jobs:
   organization-rejection:
     permissions:
       contents: read
-      actions: read
     uses: ./.github/workflows/organization.yml
     with:
       organization: example-org
