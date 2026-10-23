@@ -240,12 +240,10 @@ changed-step diagnostic and recording diff. Build and toolchain errors fail the
 harness. Regenerate the passing recording with the same toolchain's
 `node <toolchain>/src/cli.ts terminal record --script <script.yml> --executable <built-cli> --out <recording.json>`.
 
-CI calls the validation workflow using the root configuration targeting
-`fixtures/passing`, including its demo, and calls the policy workflow. Because the public validation
-workflow accepts no fixture override, the command harness exercises the same
-scripts against each failing package on its matching runner. Unit tests invoke
-the release and organization scripts against invalid fixture inputs and assert
-both the exit status and diagnostic. The CI aggregate requires every dependency
-to succeed. Signed release and organization success behavior is exercised through
-local Git/API fixtures in the unit tests. Successful remote publication and live
-administrative checks require dedicated authorized fixture repositories and credentials.
+CI calls the validation and policy workflows with passing fixture packages.
+The root configuration targets `fixtures/passing` and declares every validation
+job type. The scripts exercise each job's rejection path against failing
+fixtures on its matching runner. A failing reusable-workflow call cannot be an
+expected outcome without failing the run. Release and organization workflows
+are covered by actionlint and unit tests and exercised by their consumers;
+CI does not call them. The CI aggregate requires every dependency to succeed.

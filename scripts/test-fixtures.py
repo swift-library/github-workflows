@@ -16,7 +16,7 @@ CASES = {
     'linux': ('linux', 'Linux fixture'),
     'apple-build': ('apple', 'Apple build fixture'),
     'docs': ('docs', 'missingSymbol'),
-    'command': ('commands', None),
+    'command': ('commands', 'Command rejection fixture'),
     'demo-drift': ('demo', 'recording.json: changed step 1: fixture-cli'),
 }
 
@@ -46,7 +46,7 @@ def exercise(name, job, *, failure=None, toolchain=None):
     if failure is None:
         if result.returncode:
             raise ValueError(f'{name}/{job} unexpectedly failed:\n{text}')
-    elif (result.returncode == 0 or (failure and failure not in text)
+    elif (result.returncode == 0 or failure not in text
           or (job == 'demo' and (result.returncode != 1
               or f'--- {outputs["demo_assets"]}/recording.json\n+++ regenerated/' not in text))):
         raise ValueError(f'{name}/{job} did not fail for its intended reason:\n{text}')
@@ -72,7 +72,7 @@ def main():
         exercise('apple-plugin', 'apple')
     for name, (job, marker) in CASES.items():
         if job in jobs:
-            exercise(name, job, failure=marker or '', toolchain=args.toolchain)
+            exercise(name, job, failure=marker, toolchain=args.toolchain)
     return 0
 
 

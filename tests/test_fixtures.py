@@ -69,3 +69,27 @@ class DemoFixtureTests(unittest.TestCase):
                                  capture_output=True, text=True, timeout=10)
         self.assertEqual(process.returncode, 2)
         self.assertIn('demo requires --toolchain with src/cli.ts', process.stderr)
+
+
+class CommandFixtureTests(unittest.TestCase):
+    def test_command_rejection_requires_its_marker(self):
+        parent = ROOT / '.build/command-tests'
+        parent.mkdir(parents=True, exist_ok=True)
+        with tempfile.TemporaryDirectory(dir=parent) as directory:
+            root = Path(directory)
+            (root / 'fixtures/command').mkdir(parents=True)
+            marker = fixtures.CASES['command'][1]
+            for status, output, accepted in ((42, marker, True), (0, marker, False),
+                                              (42, 'Unrelated command error', False)):
+                def run(command, **kwargs):
+                    kwargs['stdout'].write(output)
+                    return subprocess.CompletedProcess(command, status)
+                with self.subTest(status=status, output=output), \
+                        patch.object(fixtures, 'ROOT', root), \
+                        patch.object(fixtures.subprocess, 'run', side_effect=run), \
+                        contextlib.redirect_stdout(io.StringIO()):
+                    if accepted:
+                        fixtures.exercise('command', 'commands', failure=marker)
+                    else:
+                        with self.assertRaisesRegex(ValueError, 'did not fail for its intended reason'):
+                            fixtures.exercise('command', 'commands', failure=marker)
