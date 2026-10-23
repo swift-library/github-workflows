@@ -2,15 +2,25 @@ import json
 import os
 from pathlib import Path
 import subprocess
+import sys
 import unittest
 from unittest.mock import patch
 
 from test_organization import ROOT, load_script
 release = load_script('release', 'verify-release.py')
-ci = load_script('ci_result', 'check-ci.py')
 
 
 class ReleaseTests(unittest.TestCase):
+    def test_invalid_tag_cli_reports_rejection(self):
+        result = subprocess.run([
+            sys.executable, str(ROOT / 'scripts/verify-release.py'),
+            '--root', str(ROOT / 'fixtures/release-build'), '--repository', 'example/package',
+            '--tag', 'fixture-invalid-tag', '--accepted-commit', 'a' * 40,
+            '--scratch', str(ROOT / '.build/release-tests'),
+        ], capture_output=True, text=True, timeout=10)
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertEqual(result.stderr.splitlines()[-1], 'ValueError: Expected a release version tag')
+
     def test_invalid_tag_or_commit_rejects_before_remote_operations(self):
         for tag, commit in [('v1.2.3', 'short'), ('fixture-invalid-tag', 'a' * 40)]:
             with patch.object(release, 'api') as api, self.assertRaises(ValueError):
@@ -28,16 +38,6 @@ class ReleaseTests(unittest.TestCase):
         for value in cases:
             with self.subTest(value=value), patch.object(release.subprocess, 'check_output', side_effect=['a' * 40, 'tag', 'a' * 40, 'c' * 40]), patch.object(release, 'api', return_value=value), self.assertRaises(ValueError):
                 release.authenticate(ROOT, 'example/package', 'v1.2.3', 'a' * 40, ROOT / '.build/release-tests')
-
-    def test_expected_workflow_failures_require_the_intended_rejection_step(self):
-        needs = {name: {'result': 'failure'} for name in ci.REJECTIONS}
-        needs['checks'] = {'result': 'success'}
-        jobs = [{'name': name + ' / ' + job, 'steps': [{'name': step, 'conclusion': 'failure'}]}
-                for name, (job, step) in ci.REJECTIONS.items()]
-        ci.check(needs, jobs)
-        jobs[0]['steps'][0]['name'] = 'Install schema validator'
-        with self.assertRaises(ValueError):
-            ci.check(needs, jobs)
 
 
 class PublicationTests(unittest.TestCase):

@@ -8,6 +8,7 @@ import json
 from pathlib import Path
 import re
 import shutil
+import subprocess
 import sys
 import traceback
 import unittest
@@ -202,3 +203,15 @@ class CatalogReadTests(unittest.TestCase):
                 (self.root / "profile/catalog.json").write_text(json.dumps(value))
                 with self.assertRaises(ValueError):
                     checks.read_catalog(self.root)
+
+
+class OrganizationCLITests(unittest.TestCase):
+    def test_mismatched_organization_reports_rejection(self):
+        result = subprocess.run([
+            sys.executable, str(ROOT / 'scripts/check-organization.py'),
+            '--root', str(ROOT / 'fixtures/organization'), '--organization', 'fixture-other-org',
+            '--standard-repository', 'example-org/standard', '--mode', 'public',
+        ], capture_output=True, text=True, timeout=10)
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertEqual(result.stdout.strip(),
+                         'FAIL organization: Catalog organization differs from the requested organization')

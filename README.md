@@ -189,9 +189,9 @@ reason. Builds and logs live under ignored `.build/`.
 CI calls the validation workflow using the root configuration targeting
 `fixtures/passing`, and calls the policy workflow. Because the public validation
 workflow accepts no fixture override, the command harness exercises the same
-scripts against each failing package on its matching runner. Release and
-organization calls exercise rejection paths; the aggregate verifies the exact
-failed step so bootstrap failures cannot count as expected rejection. Signed
-release and organization success behavior is exercised through local Git/API
-fixtures in the unit tests. Successful remote publication and live administrative
-checks require dedicated authorized fixture repositories and credentials.
+scripts against each failing package on its matching runner. Unit tests invoke
+the release and organization scripts against invalid fixture inputs and assert
+both the exit status and diagnostic. The CI aggregate requires every dependency
+to succeed. Signed release and organization success behavior is exercised through
+local Git/API fixtures in the unit tests. Successful remote publication and live
+administrative checks require dedicated authorized fixture repositories and credentials.

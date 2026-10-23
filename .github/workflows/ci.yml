@@ -36,22 +36,6 @@ jobs:
         Cursor
         Claude
       dependabot-exception: true
-  release-rejection:
-    permissions:
-      contents: write
-    uses: ./.github/workflows/swift-package-release.yml
-    with:
-      tag: fixture-invalid-tag
-      accepted_commit: ${{ github.sha }}
-  organization-rejection:
-    permissions:
-      contents: read
-    uses: ./.github/workflows/organization.yml
-    with:
-      organization: example-org
-      standard-repository: example-org/standard
-      standard-revision: fixture-invalid-revision
-      mode: public
   fixtures:
     runs-on: ${{ matrix.runner }}
     permissions:
@@ -98,17 +82,15 @@ jobs:
           python3 scripts/test-fixtures.py demo || status=$?
           test "$status" -eq 77
   result:
-    needs: [checks, validate, policy, release-rejection, organization-rejection, fixtures, demo-fixture]
+    needs: [checks, validate, policy, fixtures, demo-fixture]
     if: always()
     runs-on: ubuntu-24.04
     permissions:
       contents: read
-      actions: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - env:
-          GH_TOKEN: ${{ github.token }}
           NEEDS: ${{ toJSON(needs) }}
         run: python3 scripts/check-ci.py
