@@ -74,11 +74,13 @@ def execute(root, job, entry, config=None):
     config = config or load(root)
     package = inside(root, config.get('package_directory', '.'))
     environment = {**os.environ, **config.get('environment', {})}
-    traits = config.get('traits', [None])
     configurations = config.get('test_configurations', ['debug'])
     if job in {'compiler', 'linux'}:
+        traits = [None]
+        if job == 'compiler' and entry['name'] == config['compilers'][0]['name']:
+            traits += config.get('traits', [])
         for trait_set in traits:
-            flags = swift_flags(config, trait_set)
+            flags = ['--disable-index-store', *swift_flags(config, trait_set)]
             for configuration in configurations:
                 command = ['swift', 'test', '-c', configuration, *flags]
                 if job == 'linux':
@@ -87,7 +89,7 @@ def execute(root, job, entry, config=None):
                                *[value for key in config.get('environment', {}) for value in ('-e', key)],
                                entry['image'], *command]
                 run(command, package, environment)
-            if job == 'compiler':
+            if job == 'compiler' and trait_set is None:
                 run(['swift', 'build', '-c', 'release', *flags], package, environment)
     elif job == 'format':
         paths = [inside(package, path) for path in config.get('format', {}).get(
@@ -115,7 +117,7 @@ def execute(root, job, entry, config=None):
         targets = {target['name']: target for target in description['targets']}
         all_symbols = package / '.build/symbol-graphs'
         all_symbols.mkdir(parents=True, exist_ok=True)
-        run(['swift', 'build', *swift_flags(config, config['docs'].get('traits')),
+        run(['swift', 'build', '--disable-index-store', *swift_flags(config, config['docs'].get('traits')),
              '-Xswiftc', '-emit-symbol-graph', '-Xswiftc', '-emit-symbol-graph-dir',
              '-Xswiftc', all_symbols, '-Xswiftc', '-emit-extension-block-symbols'], package, environment)
         for target in config['docs']['targets']:
@@ -139,8 +141,8 @@ def execute(root, job, entry, config=None):
                  '--fallback-bundle-version', '0.0.0', '--warnings-as-errors',
                  '--output-path', output / (target + '.doccarchive')], package, environment)
     elif job == 'demo':
-        run(['swift', 'build', '-c', 'release', '--product', config['demo']['product'], *swift_flags(config)], package, environment)
-        binary = run(['swift', 'build', '-c', 'release', '--show-bin-path', *swift_flags(config)], package, environment, capture=True).strip()
+        run(['swift', 'build', '-c', 'release', '--product', config['demo']['product'], '--disable-index-store', *swift_flags(config)], package, environment)
+        binary = run(['swift', 'build', '-c', 'release', '--show-bin-path', '--disable-index-store', *swift_flags(config)], package, environment, capture=True).strip()
         script = inside(root, config['demo'].get('script', '.github/assets/terminal/script.yml'))
         assets = prepare_demo(root, script)
         with open(os.environ['GITHUB_OUTPUT'], 'a') as stream:

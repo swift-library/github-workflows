@@ -9,9 +9,9 @@ for Swift packages. Required member checks are exactly **`policy / policy`** and
 | Workflow / job | Behavior |
 | --- | --- |
 | `swift-package.yml` / `configure` | Schema-validates `.github/swift-package.json` and emits matrices. Unknown or duplicate keys fail. |
-| `compiler` | Each compiler runs every test configuration and a release build for every declared trait set. Verifies the selected Swift version. |
+| `compiler` | Each compiler runs every test configuration and one release build with default traits. The first compiler also tests each additional trait set in every test configuration, with no additional release build. Verifies the selected Swift version. |
 | `format` | Strict recursive Swift formatting using the repository's `.swift-format`, on the last compiler. |
-| `linux` | Runs tests in each digest-pinned Swift Docker image. |
+| `linux` | Runs every test configuration with default traits in each digest-pinned Swift Docker image. |
 | `apple` | Builds each generic iOS, tvOS, watchOS or visionOS destination, skipping plugin and macro validation for non-interactive CI. Optional tests use the SDK-matching simulator runtime, downloading it only when the runner lacks it, and create/delete a matching simulator. |
 | `docs` | Builds the whole package once, emitting public symbol graphs with extension blocks, then converts each target's DocC archive with warnings as errors. |
 | `demo` | Builds the release executable and checks a fresh terminal recording through the presentation action's recording-only mode. |
@@ -28,14 +28,14 @@ See [the JSON Schema](schemas/swift-package.schema.json).
 
 | Key | Meaning / default |
 | --- | --- |
-| `compilers` (required) | Nonempty `{name, runner, xcode, swift?}` array. Xcode must be installed on the runner. `swift` installs an official release after selecting Xcode. |
+| `compilers` (required) | Nonempty `{name, runner, xcode, swift?}` array, with the minimum compiler first by convention. Xcode must be installed on the runner. `swift` installs an official release after selecting Xcode. |
 | `format` | `{paths}`; defaults to `Package.swift`, `Sources`, `Tests`, relative to the package directory. `.swift-format` lives at the repository root. |
 | `package_directory` | Package root inside the repository; default `.`. |
 | `test_configurations` | Nonempty list of `debug` and/or `release`; default `["debug"]`. |
 | `build_system` | `native` or `xcode`, passed to SwiftPM commands. Omission uses SwiftPM's default. |
-| `traits` | List of trait sets, e.g. `[["default"], [], ["Experimental", "default"]]`. `default` enables SwiftPM default traits; an empty set disables them. Omission uses default traits. |
+| `traits` | Additional trait sets tested in every test configuration on the first compiler only, e.g. `[["default"], [], ["Experimental", "default"]]`. `default` enables SwiftPM default traits; an empty set disables them. Omission means no additional sets. |
 | `environment` | String map exported to validation commands. The terminal script declares its own sandbox environment. |
-| `platforms.linux` | Nonempty array of `{name, image}` with `@sha256:<64 hex digits>` image references. |
+| `platforms.linux` | Nonempty array of `{name, image}` with `@sha256:<64 hex digits>` image references. Tests use default traits only. |
 | `platforms.apple` | Nonempty array of `{name, platform, scheme, test?, runner?, xcode?}`. Platform is `iOS`, `tvOS`, `watchOS` or `visionOS`; test defaults to false. |
 | `docs` | `{targets, traits?}` for packages shipping DocC. Catalogs live under each target path reported by SwiftPM. `traits` is one trait set for the documentation build, e.g. `["Experimental", "default"]`; omission uses default traits. |
 | `demo` | `{product, script?}`; script defaults to `.github/assets/terminal/script.yml`, relative to the repository. `recording.json` and optional `fixture/` live beside the script. |
@@ -45,6 +45,9 @@ See [the JSON Schema](schemas/swift-package.schema.json).
 Apple and command entries default to the last compiler's runner and toolchain.
 An explicit Xcode override uses that Xcode's bundled Swift. Docs and demo also
 use the last compiler. Package and script paths must stay inside the checkout.
+
+Every `swift build` and `swift test` invocation uses `--disable-index-store`
+alongside any configured build-system flags; CI does not use the index.
 
 The documentation build emits graphs for library and executable modules.
 Each declared target's DocC conversion receives only its main graph and
