@@ -34,10 +34,17 @@ def simulator(entry, root, environment):
     sdk = {'iOS': 'iphonesimulator', 'tvOS': 'appletvsimulator',
            'watchOS': 'watchsimulator', 'visionOS': 'xrsimulator'}[platform]
     expected = run(['xcrun', '--sdk', sdk, '--show-sdk-version'], root, environment, capture=True).strip()
-    run([*XCODEBUILD, '-downloadPlatform', platform], root, environment)
-    inventory = json.loads(run(['xcrun', 'simctl', 'list', '-j'], root, environment, capture=True))
-    runtimes = [item for item in inventory['runtimes'] if item.get('isAvailable')
+
+    def matching():
+        inventory = json.loads(run(['xcrun', 'simctl', 'list', '-j'], root, environment, capture=True))
+        return [item for item in inventory['runtimes'] if item.get('isAvailable')
                 and item['name'].startswith(platform + ' ') and item['version'] == expected]
+
+    # Runner images preinstall the runtime that matches their Xcode; download only when it is absent.
+    runtimes = matching()
+    if not runtimes:
+        run([*XCODEBUILD, '-downloadPlatform', platform], root, environment)
+        runtimes = matching()
     if not runtimes:
         raise ValueError('No available simulator runtime matching ' + platform + ' ' + expected)
     runtime = runtimes[-1]

@@ -128,6 +128,41 @@ class ExecutionTests(unittest.TestCase):
                     runner.execute(self.root, 'format', {}, self.config)
                 run.assert_not_called()
 
+    def test_simulator_uses_an_installed_runtime_without_downloading(self):
+        inventory = json.dumps({'runtimes': [{
+            'isAvailable': True, 'name': 'iOS 26.5', 'version': '26.5',
+            'identifier': 'com.apple.CoreSimulator.SimRuntime.iOS-26-5',
+            'supportedDeviceTypes': [{'name': 'iPhone 17', 'identifier': 'iPhone-17'}]}]})
+
+        def respond(command, cwd, environment, capture=False):
+            if '--show-sdk-version' in command:
+                return '26.5\n'
+            if command[:3] == ['xcrun', 'simctl', 'list']:
+                return inventory
+            return 'device-id\n'
+
+        with patch.object(runner, 'run', side_effect=respond) as run:
+            device = runner.simulator({'platform': 'iOS'}, self.root, {})
+        self.assertEqual(device, 'device-id')
+        self.assertFalse(any('-downloadPlatform' in call.args[0] for call in run.call_args_list))
+
+    def test_simulator_downloads_the_platform_only_when_no_runtime_matches(self):
+        listings = iter([json.dumps({'runtimes': []}), json.dumps({'runtimes': [{
+            'isAvailable': True, 'name': 'iOS 26.5', 'version': '26.5', 'identifier': 'runtime',
+            'supportedDeviceTypes': [{'name': 'iPhone 17', 'identifier': 'iPhone-17'}]}]})])
+
+        def respond(command, cwd, environment, capture=False):
+            if '--show-sdk-version' in command:
+                return '26.5\n'
+            if command[:3] == ['xcrun', 'simctl', 'list']:
+                return next(listings)
+            return 'device-id\n'
+
+        with patch.object(runner, 'run', side_effect=respond) as run:
+            runner.simulator({'platform': 'iOS'}, self.root, {})
+        downloads = [call.args[0] for call in run.call_args_list if '-downloadPlatform' in call.args[0]]
+        self.assertEqual(len(downloads), 1)
+
     def test_compiler_runs_every_test_configuration_and_builds_every_trait(self):
         self.config.update(test_configurations=['debug', 'release'], traits=[['default'], ['Feature', 'default'], []], build_system='native', environment={'VALUE': 'declared'})
         with patch.object(runner, 'run') as run:
@@ -189,7 +224,7 @@ class ExecutionTests(unittest.TestCase):
                 entry = {**self.config['platforms']['apple'][0], 'test': tests}
                 runner.execute(self.root, 'apple', entry, self.config)
                 commands = [call.args[0] for call in run.call_args_list if call.args[0][0] == 'xcodebuild']
-                self.assertEqual(len(commands), 3 if tests else 1)
+                self.assertEqual(len(commands), 2 if tests else 1)
                 self.assertIn('generic/platform=iOS', commands[0])
                 for command in commands:
                     self.assertIn('-skipPackagePluginValidation', command)

@@ -12,7 +12,7 @@ for Swift packages. Required member checks are exactly **`policy / policy`** and
 | `compiler` | Each compiler runs every test configuration and a release build for every declared trait set. Verifies the selected Swift version. |
 | `format` | Strict recursive Swift formatting using the repository's `.swift-format`, on the last compiler. |
 | `linux` | Runs tests in each digest-pinned Swift Docker image. |
-| `apple` | Builds each generic iOS, tvOS, watchOS or visionOS destination, skipping plugin and macro validation for non-interactive CI. Optional tests download the SDK-matching runtime and create/delete a matching simulator. |
+| `apple` | Builds each generic iOS, tvOS, watchOS or visionOS destination, skipping plugin and macro validation for non-interactive CI. Optional tests use the SDK-matching simulator runtime, downloading it only when the runner lacks it, and create/delete a matching simulator. |
 | `docs` | Builds the whole package once, emitting public symbol graphs with extension blocks, then converts each target's DocC archive with warnings as errors. |
 | `demo` | Builds the release executable and checks a fresh terminal recording through the presentation action's recording-only mode. |
 | `commands` | Runs each repository command in its own job in the member checkout. |
