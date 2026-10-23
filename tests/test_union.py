@@ -32,8 +32,8 @@ class OrganizationModesTests(unittest.TestCase):
                 for group in catalog['groups'] for item in group['repositories']]
         live.append({'name': '.github', 'description': catalog['organization']['about'], 'private': False, 'archived': False, 'fork': False})
         with contextlib.redirect_stdout(io.StringIO()), patch.object(checks, 'fetch_repositories', return_value=live), patch.object(checks.settings, 'check_online', return_value=list(findings)) as online, patch.object(checks.settings, 'check_repository', return_value=list(findings)) as member:
-            status = checks.main(['--root', str(ROOT / 'fixtures/organization'), '--organization', 'example-org',
-                                 '--standard-repository', 'example-org/.github', '--mode', mode, '--members', members])
+            status = checks.main(['--declaration-root', str(ROOT / 'fixtures/organization'), '--organization', 'example-org',
+                                 '--catalog-repository', 'example-org/.github', '--mode', mode, '--members', members])
         return status, online, member
 
     def test_public_avoids_admin_endpoints(self):
@@ -51,7 +51,7 @@ class OrganizationModesTests(unittest.TestCase):
         self.assertEqual(member.call_args.args[0], 'example-org/core')
         self.assertEqual(self.invoke(members='missing')[0], 1)
 
-    def test_standard_repository_name_is_an_input(self):
+    def test_catalog_repository_name_is_an_input(self):
         catalog = committed_catalog()
         live = [{'name': item['name'], 'description': item['about'], 'private': False, 'archived': False, 'fork': False}
                 for group in catalog['groups'] for item in group['repositories']]
@@ -65,3 +65,61 @@ class CheckerSourceTests(unittest.TestCase):
         source = (ROOT / 'scripts/check-policy.py').read_text()
         patch_text = '@@ -0,0 +1 @@\n' + '\n'.join('+' + line for line in source.splitlines())
         self.assertEqual(policy.added_findings(patch_text, allow_terms={'chatgpt', 'codex', 'cursor', 'claude'}), [])
+
+
+class SplitOrganizationTests(unittest.TestCase):
+    def test_separate_catalog_and_declaration_filter_other_organizations(self):
+        from pathlib import Path
+        import tempfile
+        parent = ROOT / '.build/organization-tests'
+        parent.mkdir(parents=True, exist_ok=True)
+        with tempfile.TemporaryDirectory(dir=parent) as directory:
+            declaration_root = Path(directory) / 'declaration'
+            catalog_root = Path(directory) / 'catalog'
+            declaration_root.mkdir()
+            (catalog_root / 'profile').mkdir(parents=True)
+            declaration = checks.settings.load_declaration(ROOT / 'fixtures/organization')
+            expected = copy.deepcopy(declaration)
+            declaration['repositories']['other-org/core'] = copy.deepcopy(
+                declaration['repositories']['example-org/core'])
+            (declaration_root / 'MAINTENANCE.md').write_text(
+                '<!-- settings-declaration -->\n```json\n' + json.dumps(declaration) + '\n```\n')
+            catalog = committed_catalog()
+            (catalog_root / 'profile/catalog.json').write_text(json.dumps(catalog))
+            live = [{'name': item['name'], 'description': item['about'],
+                     'private': False, 'archived': False, 'fork': False}
+                    for group in catalog['groups'] for item in group['repositories']]
+            live.append({'name': '.github', 'description': catalog['organization']['about'],
+                         'private': False, 'archived': False, 'fork': False})
+            args = ['--declaration-root', str(declaration_root), '--catalog-root', str(catalog_root),
+                    '--organization', 'example-org', '--catalog-repository', 'example-org/.github',
+                    '--mode', 'online']
+            with contextlib.redirect_stdout(io.StringIO()), \
+                    patch.object(checks, 'fetch_repositories', return_value=live) as fetch, \
+                    patch.object(checks.settings, 'check_online', return_value=[]) as online, \
+                    patch.object(checks.settings, 'check_repository', return_value=[]) as member:
+                self.assertEqual(checks.main(args), 0)
+                online.assert_called_once_with(expected)
+                self.assertEqual(fetch.call_args.args[0], 'example-org')
+                self.assertEqual(checks.main([*args, '--members', 'core']), 0)
+                self.assertEqual(member.call_args.args[0], 'example-org/core')
+                self.assertEqual(member.call_args.args[2], expected)
+                member.reset_mock()
+                self.assertEqual(checks.main([*args, '--members', 'other-org/core']), 1)
+                member.assert_not_called()
+
+    def test_workflow_requires_both_resolved_revisions_to_be_full_shas(self):
+        import subprocess
+        source = (ROOT / '.github/workflows/organization.yml').read_text()
+        script = source.split('      run: |\n', 1)[1].split('    - ', 1)[0]
+        for declaration, catalog, mode, status in (
+            ('a' * 40, 'b' * 40, 'public', 0), ('a' * 40, 'b' * 40, 'online', 0),
+            ('main', 'b' * 40, 'public', 1), ('a' * 40, 'main', 'public', 1),
+            ('', 'b' * 40, 'public', 1), ('a' * 40, '', 'public', 1),
+            ('a' * 40, 'b' * 40, 'invalid', 1),
+        ):
+            with self.subTest(declaration=declaration, catalog=catalog, mode=mode):
+                result = subprocess.run(['bash', '-euo', 'pipefail', '-c', script],
+                                        env={'DECLARATION_REVISION': declaration,
+                                             'CATALOG_REVISION': catalog, 'MODE': mode})
+                self.assertEqual(result.returncode, status)

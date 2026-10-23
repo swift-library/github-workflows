@@ -129,13 +129,35 @@ running and queued releases.
 
 ## Organization checks
 
-Inputs are `organization`, `standard-repository`, `standard-revision` (a full
-commit SHA), `members` (default `all`, or newline-separated names), and `mode`
-(`public` or `online`, default `public`). The standard repository supplies
-`MAINTENANCE.md` with its `settings-declaration` JSON block and
+Inputs are `organization`, `declaration-repository`, `declaration-revision`,
+`catalog-repository`, `catalog-revision`, `members` (default `all`, or
+newline-separated names), and `mode` (`public` or `online`, default `public`).
+The declaration repository supplies `MAINTENANCE.md` with its
+`settings-declaration` JSON block. The catalog repository supplies
 `profile/catalog.json` with organization/group membership and About text.
+Each `catalog-*` input defaults to its corresponding `declaration-*` input.
+Both resolved revisions must be full commit SHAs. Only declaration members in
+the requested organization are checked; members in other organizations are ignored.
 
-Public mode compares the full active public membership and About descriptions.
+`swift-library` and `agents-tools` use their own `.github` repository for both
+inputs. `skill-cli` uses a pinned `agents-tools/.github` declaration and its own
+catalog at the commit under test:
+
+```yaml
+jobs:
+  organization:
+    permissions:
+      contents: read
+    uses: agents-tools/github-workflows/.github/workflows/organization.yml@<full-sha> # vX.Y.Z
+    with:
+      organization: skill-cli
+      declaration-repository: agents-tools/.github
+      declaration-revision: <full-declaration-sha>
+      catalog-repository: skill-cli/.github
+      catalog-revision: ${{ github.sha }}
+```
+
+Public mode compares active public, non-fork membership and About descriptions.
 Member selection narrows About/settings checks but still detects new members.
 Online mode additionally reads merge settings, token permissions, vulnerability
 reporting and complete branch/tag rulesets. Unknown observations fail with exit

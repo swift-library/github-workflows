@@ -81,7 +81,7 @@ def fetch_repositories(organization, token=None, *, opener=urlopen):
     return repositories
 
 
-def compare_membership(catalog, repositories, standard_repository=".github"):
+def compare_membership(catalog, repositories, catalog_repository=".github"):
     # Forks are upstream source lines, not the organization's own products.
     expected = {
         repository["name"]
@@ -89,7 +89,7 @@ def compare_membership(catalog, repositories, standard_repository=".github"):
         if not repository["private"]
         and not repository["archived"]
         and not repository["fork"]
-        and repository["name"] != standard_repository
+        and repository["name"] != catalog_repository
     }
     actual = {
         repository["name"]
@@ -105,9 +105,9 @@ def compare_membership(catalog, repositories, standard_repository=".github"):
         raise ValueError("; ".join(differences))
 
 
-def compare_about(catalog, repositories, standard_repository=".github"):
+def compare_about(catalog, repositories, catalog_repository=".github"):
     live = {repository["name"]: repository for repository in repositories}
-    entries = [(standard_repository, catalog["organization"])] + [
+    entries = [(catalog_repository, catalog["organization"])] + [
         (entry["name"], entry) for group in catalog["groups"] for entry in group["repositories"]
     ]
     differences = []
@@ -126,21 +126,26 @@ def compare_about(catalog, repositories, standard_repository=".github"):
 
 def main(argv=None, *, root=ROOT):
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--root', type=Path, default=root)
+    parser.add_argument('--declaration-root', type=Path, default=root)
+    parser.add_argument('--catalog-root', type=Path)
     parser.add_argument('--organization', required=True)
-    parser.add_argument('--standard-repository', required=True)
+    parser.add_argument('--catalog-repository', required=True)
     parser.add_argument('--members', default='all', help='all or newline-separated repository names')
     parser.add_argument('--mode', choices=('public', 'online'), default='public')
     args = parser.parse_args(argv)
     try:
-        catalog = read_catalog(args.root)
-        declaration = settings.load_declaration(args.root)
+        catalog = read_catalog(args.catalog_root or args.declaration_root)
+        declaration = settings.load_declaration(args.declaration_root)
         if catalog['organization']['login'] != args.organization:
             raise ValueError('Catalog organization differs from the requested organization')
         prefix = args.organization + '/'
-        if not re.fullmatch(r'[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+', args.standard_repository):
-            raise ValueError('Expected a standard owner/repository identity')
-        standard = args.standard_repository.split('/')[1]
+        declaration = {**declaration, 'repositories': {
+            name: member for name, member in declaration['repositories'].items() if name.startswith(prefix)}}
+        if not re.fullmatch(r'[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+', args.catalog_repository):
+            raise ValueError('Expected a catalog owner/repository identity')
+        if not args.catalog_repository.startswith(prefix):
+            raise ValueError('Catalog repository belongs to a different organization')
+        catalog_name = args.catalog_repository.split('/')[1]
         selected = None if args.members == 'all' else set(args.members.split())
         if selected is not None:
             selected = {name if '/' in name else prefix + name for name in selected}
@@ -149,13 +154,13 @@ def main(argv=None, *, root=ROOT):
         live = fetch_repositories(args.organization, os.environ.get('GITHUB_TOKEN'))
         # Membership is always checked against the complete inventory. Selection
         # restricts About and administrative observations, never hides new members.
-        compare_membership(catalog, live, standard)
+        compare_membership(catalog, live, catalog_name)
         print('PASS repository membership')
         if selected is not None:
             catalog = {**catalog, 'groups': [
                 {**group, 'repositories': [item for item in group['repositories'] if prefix + item['name'] in selected]}
                 for group in catalog['groups']]}
-        compare_about(catalog, live, standard)
+        compare_about(catalog, live, catalog_name)
         print('PASS repository about')
         if args.mode == 'public':
             return 0

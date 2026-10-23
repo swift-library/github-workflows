@@ -216,8 +216,8 @@ class OrganizationCLITests(unittest.TestCase):
     def test_mismatched_organization_reports_rejection(self):
         result = subprocess.run([
             sys.executable, str(ROOT / 'scripts/check-organization.py'),
-            '--root', str(ROOT / 'fixtures/organization'), '--organization', 'fixture-other-org',
-            '--standard-repository', 'example-org/standard', '--mode', 'public',
+            '--declaration-root', str(ROOT / 'fixtures/organization'), '--organization', 'fixture-other-org',
+            '--catalog-repository', 'example-org/standard', '--mode', 'public',
         ], capture_output=True, text=True, timeout=10)
         self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
         self.assertEqual(result.stdout.strip(),

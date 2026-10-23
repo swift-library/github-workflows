@@ -9,12 +9,18 @@ on:
       organization:
         type: string
         required: true
-      standard-repository:
+      declaration-repository:
         type: string
         required: true
-      standard-revision:
+      declaration-revision:
         type: string
         required: true
+      catalog-repository:
+        type: string
+        default: ''
+      catalog-revision:
+        type: string
+        default: ''
       members:
         type: string
         default: all
@@ -34,26 +40,36 @@ jobs:
         ref: ${{ job.workflow_sha }}
         path: .shared
         persist-credentials: false
-    - name: Validate standard revision
+    - name: Validate revisions and mode
       env:
-        REVISION: ${{ inputs.standard-revision }}
+        DECLARATION_REVISION: ${{ inputs.declaration-revision }}
+        CATALOG_REVISION: ${{ inputs.catalog-revision || inputs.declaration-revision }}
         MODE: ${{ inputs.mode }}
       shell: bash
-      run: '[[ "$REVISION" =~ ^[0-9a-f]{40}$ ]]
-
-        [[ "$MODE" == public || "$MODE" == online ]]'
+      run: |
+        [[ "$DECLARATION_REVISION" =~ ^[0-9a-f]{40}$ ]] || exit 1
+        [[ "$CATALOG_REVISION" =~ ^[0-9a-f]{40}$ ]] || exit 1
+        [[ "$MODE" == public || "$MODE" == online ]] || exit 1
     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       with:
-        repository: ${{ inputs.standard-repository }}
-        ref: ${{ inputs.standard-revision }}
-        path: standard
+        repository: ${{ inputs.declaration-repository }}
+        ref: ${{ inputs.declaration-revision }}
+        path: declaration
+        persist-credentials: false
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        repository: ${{ inputs.catalog-repository || inputs.declaration-repository }}
+        ref: ${{ inputs.catalog-revision || inputs.declaration-revision }}
+        path: catalog
         persist-credentials: false
     - env:
         GITHUB_TOKEN: ${{ secrets.organization-token || github.token }}
         GH_TOKEN: ${{ secrets.organization-token || github.token }}
         ORGANIZATION: ${{ inputs.organization }}
-        STANDARD_REPOSITORY: ${{ inputs.standard-repository }}
+        CATALOG_REPOSITORY: ${{ inputs.catalog-repository || inputs.declaration-repository }}
         MEMBERS: ${{ inputs.members }}
         MODE: ${{ inputs.mode }}
-      run: python3 .shared/scripts/check-organization.py --root standard --organization "$ORGANIZATION" --standard-repository
-        "$STANDARD_REPOSITORY" --members "$MEMBERS" --mode "$MODE"
+      run: >-
+        python3 .shared/scripts/check-organization.py --declaration-root declaration --catalog-root catalog
+        --organization "$ORGANIZATION" --catalog-repository "$CATALOG_REPOSITORY"
+        --members "$MEMBERS" --mode "$MODE"
