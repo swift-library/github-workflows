@@ -1,0 +1,41 @@
+{
+  "compilers": [
+    {
+      "name": "macos-15-swift-6.2",
+      "runner": "macos-15",
+      "xcode": "26.0.1"
+    },
+    {
+      "name": "macos-26-swift-6.3",
+      "runner": "macos-26",
+      "xcode": "26.6"
+    }
+  ],
+  "docs": {
+    "targets": [
+      "SwiftDataWritable"
+    ]
+  },
+  "platforms": {
+    "apple": [
+      {
+        "name": "ios",
+        "platform": "iOS",
+        "scheme": "SwiftDataWritable",
+        "test": true
+      },
+      {
+        "name": "tvos",
+        "platform": "tvOS",
+        "scheme": "SwiftDataWritable",
+        "test": false
+      },
+      {
+        "name": "watchos",
+        "platform": "watchOS",
+        "scheme": "SwiftDataWritable",
+        "test": false
+      }
+    ]
+  }
+}

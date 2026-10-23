@@ -1,0 +1,117 @@
+name: CI
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+permissions: {}
+jobs:
+  checks:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: |
+          python3 -m venv .build/venv
+          .build/venv/bin/python -m pip install --disable-pip-version-check --no-cache-dir -r requirements.txt
+          echo "$GITHUB_WORKSPACE/.build/venv/bin" >> "$GITHUB_PATH"
+      - run: go install github.com/rhysd/actionlint/cmd/actionlint@v1.7.12
+      - run: '"$(go env GOPATH)/bin/actionlint"'
+      - run: python3 -m unittest discover -s tests
+  validate:
+    permissions:
+      contents: read
+      actions: read
+    uses: ./.github/workflows/swift-package.yml
+  policy:
+    permissions:
+      contents: read
+      actions: read
+    uses: ./.github/workflows/policy.yml
+    with:
+      allow-terms: |
+        ChatGPT
+        Codex
+        Cursor
+        Claude
+      dependabot-exception: true
+  release-rejection:
+    permissions:
+      contents: write
+      actions: read
+    uses: ./.github/workflows/swift-package-release.yml
+    with:
+      tag: fixture-invalid-tag
+      accepted_commit: ${{ github.sha }}
+  organization-rejection:
+    permissions:
+      contents: read
+      actions: read
+    uses: ./.github/workflows/organization.yml
+    with:
+      organization: example-org
+      standard-repository: example-org/standard
+      standard-revision: fixture-invalid-revision
+      mode: public
+  fixtures:
+    runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - group: macos
+            runner: macos-26
+          - group: apple
+            runner: macos-26
+          - group: linux
+            runner: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ./actions/select-toolchain
+        if: runner.os == 'macOS'
+        with:
+          xcode: '26.6'
+      - run: |
+          python3 -m venv .build/venv
+          .build/venv/bin/python -m pip install --disable-pip-version-check --no-cache-dir -r requirements.txt
+          echo "$GITHUB_WORKSPACE/.build/venv/bin" >> "$GITHUB_PATH"
+      - env:
+          GROUP: ${{ matrix.group }}
+        run: python3 scripts/test-fixtures.py "$GROUP"
+  demo-fixture:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: |
+          python3 -m venv .build/venv
+          .build/venv/bin/python -m pip install --disable-pip-version-check --no-cache-dir -r requirements.txt
+          echo "$GITHUB_WORKSPACE/.build/venv/bin" >> "$GITHUB_PATH"
+      - run: |
+          status=0
+          python3 scripts/test-fixtures.py demo || status=$?
+          test "$status" -eq 77
+  result:
+    needs: [checks, validate, policy, release-rejection, organization-rejection, fixtures, demo-fixture]
+    if: always()
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - env:
+          GH_TOKEN: ${{ github.token }}
+          NEEDS: ${{ toJSON(needs) }}
+        run: python3 scripts/check-ci.py

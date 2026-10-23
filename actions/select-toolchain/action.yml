@@ -1,0 +1,18 @@
+name: Select Swift toolchain
+description: Select an installed Xcode and optionally install an official Swift release
+inputs:
+  xcode:
+    description: Installed Xcode version
+    required: true
+  swift:
+    description: Official Swift release version
+    required: false
+    default: ''
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      env:
+        XCODE_INPUT: ${{ inputs.xcode }}
+        SWIFT_INPUT: ${{ inputs.swift }}
+      run: '"$GITHUB_ACTION_PATH/select-toolchain" "$XCODE_INPUT" "$SWIFT_INPUT"'

@@ -1,0 +1,33 @@
+#!/bin/bash
+# SPDX-License-Identifier: Apache-2.0 WITH Swift-exception
+# Copyright (c) 2026 Xudong Xu and the swift-library project authors
+set -euo pipefail
+: "${GITHUB_ENV:?This helper selects a toolchain for GitHub Actions}"
+export XCODE_VERSION="${1:?Specify an installed Xcode version}"
+python3 - <<'PYTHON'
+import os, pathlib, plistlib, subprocess
+expected = os.environ['XCODE_VERSION']
+for app in sorted(pathlib.Path('/Applications').glob('Xcode*.app')):
+    info = plistlib.loads((app / 'Contents/Info.plist').read_bytes())
+    if info.get('CFBundleShortVersionString') == expected:
+        subprocess.run(['sudo', 'xcode-select', '--switch', str(app / 'Contents/Developer')], check=True)
+        with open(os.environ['GITHUB_ENV'], 'a') as output:
+            print('DEVELOPER_DIR=' + str(app / 'Contents/Developer'), file=output)
+        break
+else:
+    raise SystemExit('Requested Xcode is not installed: ' + expected)
+PYTHON
+if [ -n "${2:-}" ]; then
+  version="$2"
+  [[ "$version" =~ ^[0-9]+\.[0-9]+(\.[0-9]+)?$ ]]
+  package="$RUNNER_TEMP/swift-$version.pkg"
+  curl --fail --location --retry 3 --output "$package" \
+    "https://download.swift.org/swift-$version-release/xcode/swift-$version-RELEASE/swift-$version-RELEASE-osx.pkg"
+  pkgutil --check-signature "$package"
+  sudo installer -pkg "$package" -target /
+  toolchain="/Library/Developer/Toolchains/swift-$version-RELEASE.xctoolchain/usr/bin"
+  "$toolchain/swift" --version
+  echo "$toolchain" >> "$GITHUB_PATH"
+  /usr/libexec/PlistBuddy -c 'Print CFBundleIdentifier' "${toolchain%/usr/bin}/Info.plist" |
+    sed 's/^/TOOLCHAINS=/' >> "$GITHUB_ENV"
+fi

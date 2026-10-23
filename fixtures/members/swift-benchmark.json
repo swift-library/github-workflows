@@ -1,0 +1,24 @@
+{
+  "compilers": [
+    {
+      "name": "macos-15-swift-6.0",
+      "runner": "macos-15",
+      "xcode": "16.2"
+    },
+    {
+      "name": "macos-26-swift-6.3",
+      "runner": "macos-26",
+      "xcode": "26.6"
+    }
+  ],
+  "docs": {
+    "targets": [
+      "Benchmark",
+      "BenchmarkTesting",
+      "BenchmarkXCTest",
+      "Instruments",
+      "Memory",
+      "Report"
+    ]
+  }
+}

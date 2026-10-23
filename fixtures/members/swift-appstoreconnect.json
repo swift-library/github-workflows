@@ -1,0 +1,59 @@
+{
+  "compilers": [
+    {
+      "name": "macos-15-swift-6.3-minimum",
+      "runner": "macos-15",
+      "xcode": "26.0.1",
+      "swift": "6.3.3"
+    },
+    {
+      "name": "macos-26-swift-6.3",
+      "runner": "macos-26",
+      "xcode": "26.6"
+    }
+  ],
+  "timeout_minutes": 240,
+  "traits": [
+    [
+      "default"
+    ],
+    [],
+    [
+      "PublicAPIFull"
+    ],
+    [
+      "Experimental",
+      "default"
+    ]
+  ],
+  "build_system": "native",
+  "demo": {
+    "product": "appstoreconnect"
+  },
+  "format": {
+    "paths": [
+      "Package.swift",
+      "Sources",
+      "Tests",
+      "Plugins"
+    ]
+  },
+  "commands": [
+    {
+      "name": "spec",
+      "run": "scripts/check-spec"
+    },
+    {
+      "name": "generation",
+      "run": "scripts/check-generation"
+    },
+    {
+      "name": "release-tools",
+      "run": "python3 -m unittest discover -s Tests/ReleaseTools"
+    },
+    {
+      "name": "documentation",
+      "run": "scripts/check-docs"
+    }
+  ]
+}

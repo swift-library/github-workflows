@@ -1,0 +1,9 @@
+{
+  "title": "A greeting",
+  "steps": [
+    {
+      "command": "fixture-cli",
+      "output": "Hello, workflows!\n"
+    }
+  ]
+}

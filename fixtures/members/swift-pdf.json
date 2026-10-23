@@ -1,0 +1,35 @@
+{
+  "compilers": [
+    {
+      "name": "macos-15-swift-6.2",
+      "runner": "macos-15",
+      "xcode": "26.0.1"
+    },
+    {
+      "name": "macos-26-swift-6.3",
+      "runner": "macos-26",
+      "xcode": "26.6"
+    }
+  ],
+  "docs": {
+    "targets": [
+      "PDF"
+    ]
+  },
+  "platforms": {
+    "apple": [
+      {
+        "name": "ios",
+        "platform": "iOS",
+        "scheme": "PDF",
+        "test": true
+      },
+      {
+        "name": "visionos",
+        "platform": "visionOS",
+        "scheme": "PDF",
+        "test": false
+      }
+    ]
+  }
+}
