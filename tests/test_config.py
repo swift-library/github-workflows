@@ -59,6 +59,12 @@ class ConfigurationTests(unittest.TestCase):
                                  declared_counts.get(path.parent.parent.name, 8))
         config.load(ROOT)
 
+    def test_repository_ci_runs_the_passing_demo(self):
+        value = config.load(ROOT)
+        self.assertTrue(config.outputs(value)['demo_declared'])
+        self.assertEqual(value['demo']['product'], 'fixture-cli')
+        self.assertEqual(value['demo']['script'], 'fixtures/passing/.github/assets/terminal/script.yml')
+
     def test_empty_release_minimum_fails_configuration(self):
         import subprocess
         output = ROOT / '.build/config-tests'

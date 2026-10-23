@@ -283,7 +283,7 @@ jobs:
       env:
         ENTRY: ${{ toJSON(matrix) }}
       run: python3 .shared/scripts/run-validation.py demo --root member --entry "$ENTRY"
-    - uses: showxu/skills/skills/github-readme-design/scripts@0000000000000000000000000000000000000000
+    - uses: showxu/skills/skills/github-readme-design/scripts@db02bcb24426f4add0393444f868f1bffdf06f9d
       env: ${{ fromJSON(needs.configure.outputs.environment) }}
       with:
         asset: terminal

@@ -26,6 +26,10 @@
       "Fixture"
     ]
   },
+  "demo": {
+    "product": "fixture-cli",
+    "script": "fixtures/passing/.github/assets/terminal/script.yml"
+  },
   "commands": [
     {
       "name": "fixture-command",

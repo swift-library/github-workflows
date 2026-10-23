@@ -3,7 +3,7 @@
   "steps": [
     {
       "command": "fixture-cli",
-      "output": "Hello, workflows!\n"
+      "output": "Hello, workflows!"
     }
   ]
 }
