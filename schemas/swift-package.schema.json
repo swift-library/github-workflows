@@ -5,6 +5,7 @@
   "additionalProperties": false,
   "properties": {
     "compilers": {
+      "description": "Each compiler tests every test configuration and builds release once with default traits. Put the minimum compiler first by convention; only the first compiler tests additional trait sets.",
       "type": "array",
       "minItems": 1,
       "uniqueItems": true,
@@ -63,6 +64,7 @@
       "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))[^\\r\\n]+$"
     },
     "test_configurations": {
+      "description": "Configurations for each test run, including additional trait sets on the first compiler and default traits on Linux. Defaults to debug.",
       "type": "array",
       "minItems": 1,
       "uniqueItems": true,
@@ -80,6 +82,7 @@
       ]
     },
     "traits": {
+      "description": "Additional trait sets tested once per test configuration on the first compiler only, with no release build. The default item enables SwiftPM default traits; an empty set disables them. Omission means no additional sets.",
       "type": "array",
       "minItems": 1,
       "uniqueItems": true,
@@ -106,6 +109,7 @@
       "additionalProperties": false,
       "properties": {
         "linux": {
+          "description": "Digest-pinned Swift images that test every test configuration with default traits only.",
           "type": "array",
           "minItems": 1,
           "uniqueItems": true,

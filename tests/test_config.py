@@ -163,28 +163,89 @@ class ExecutionTests(unittest.TestCase):
         downloads = [call.args[0] for call in run.call_args_list if '-downloadPlatform' in call.args[0]]
         self.assertEqual(len(downloads), 1)
 
-    def test_compiler_runs_every_test_configuration_and_builds_every_trait(self):
-        self.config.update(test_configurations=['debug', 'release'], traits=[['default'], ['Feature', 'default'], []], build_system='native', environment={'VALUE': 'declared'})
-        with patch.object(runner, 'run') as run:
-            runner.execute(self.root, 'compiler', {}, self.config)
-        commands = [call.args[0] for call in run.call_args_list]
-        self.assertEqual(len(commands), 9)
-        self.assertEqual(sum(c[:2] == ['swift', 'test'] for c in commands), 6)
-        self.assertTrue(all('--build-system' in c for c in commands))
-        self.assertIn('Feature,default', commands[3])
-        self.assertIn('--disable-default-traits', commands[-1])
-        self.assertEqual(run.call_args.args[2]['VALUE'], 'declared')
+    def test_compilers_without_traits_test_each_configuration_and_build_release(self):
+        self.config['test_configurations'] = ['debug', 'release']
+        self.config['compilers'].append({'name': 'latest', 'runner': 'macos-26', 'xcode': '26.6'})
+        for entry in config.matrices(self.config)['compiler']:
+            with self.subTest(compiler=entry['name']), patch.object(runner, 'run') as run:
+                runner.execute(self.root, 'compiler', entry, self.config)
+            self.assertEqual([call.args[0] for call in run.call_args_list], [
+                ['swift', 'test', '-c', 'debug', '--disable-index-store'],
+                ['swift', 'test', '-c', 'release', '--disable-index-store'],
+                ['swift', 'build', '-c', 'release', '--disable-index-store'],
+            ])
 
-    def test_linux_uses_digest_and_exports_environment(self):
-        self.config['environment'] = {'CUSTOM': 'value'}
+    def test_first_compiler_tests_additional_traits_without_extra_release_builds(self):
+        self.config.update(test_configurations=['debug', 'release'],
+                           traits=[['default'], ['Feature', 'default'], []],
+                           build_system='native', environment={'VALUE': 'declared'})
+        self.config['compilers'].append({'name': 'latest', 'runner': 'macos-26', 'xcode': '26.6'})
+        entry = config.matrices(self.config)['compiler'][0]
+        with patch.object(runner, 'run') as run:
+            runner.execute(self.root, 'compiler', entry, self.config)
+        self.assertEqual([call.args[0] for call in run.call_args_list], [
+            ['swift', 'test', '-c', 'debug', '--disable-index-store', '--build-system', 'native'],
+            ['swift', 'test', '-c', 'release', '--disable-index-store', '--build-system', 'native'],
+            ['swift', 'build', '-c', 'release', '--disable-index-store', '--build-system', 'native'],
+            ['swift', 'test', '-c', 'debug', '--disable-index-store', '--build-system', 'native', '--traits', 'default'],
+            ['swift', 'test', '-c', 'release', '--disable-index-store', '--build-system', 'native', '--traits', 'default'],
+            ['swift', 'test', '-c', 'debug', '--disable-index-store', '--build-system', 'native', '--traits', 'Feature,default'],
+            ['swift', 'test', '-c', 'release', '--disable-index-store', '--build-system', 'native', '--traits', 'Feature,default'],
+            ['swift', 'test', '-c', 'debug', '--disable-index-store', '--build-system', 'native', '--disable-default-traits'],
+            ['swift', 'test', '-c', 'release', '--disable-index-store', '--build-system', 'native', '--disable-default-traits'],
+        ])
+        self.assertTrue(all(call.args[2]['VALUE'] == 'declared' for call in run.call_args_list))
+
+    def test_later_compilers_use_default_traits_only(self):
+        self.config.update(test_configurations=['debug', 'release'],
+                           traits=[['default'], ['Feature', 'default'], []], build_system='native')
+        self.config['compilers'] += [
+            {'name': 'middle', 'runner': 'macos-26', 'xcode': '26.5'},
+            {'name': 'latest', 'runner': 'macos-26', 'xcode': '26.6'},
+        ]
+        for entry in config.matrices(self.config)['compiler'][1:]:
+            with self.subTest(compiler=entry['name']), patch.object(runner, 'run') as run:
+                runner.execute(self.root, 'compiler', entry, self.config)
+            self.assertEqual([call.args[0] for call in run.call_args_list], [
+                ['swift', 'test', '-c', 'debug', '--disable-index-store', '--build-system', 'native'],
+                ['swift', 'test', '-c', 'release', '--disable-index-store', '--build-system', 'native'],
+                ['swift', 'build', '-c', 'release', '--disable-index-store', '--build-system', 'native'],
+            ])
+
+    def test_linux_tests_default_traits_only_and_exports_environment(self):
+        self.config.update(test_configurations=['debug', 'release'],
+                           traits=[['default'], ['Feature', 'default'], []],
+                           build_system='native', environment={'CUSTOM': 'value'},
+                           package_directory='Sources')
         entry = self.config['platforms']['linux'][0]
         with patch.object(runner, 'run') as run:
             runner.execute(self.root, 'linux', entry, self.config)
-        command = run.call_args.args[0]
-        self.assertEqual(command[:3], ['docker', 'run', '--rm'])
-        self.assertIn(entry['image'], command)
-        self.assertIn('CUSTOM', command)
-        self.assertEqual(command[-4:], ['swift', 'test', '-c', 'debug'])
+        self.assertEqual([call.args[0] for call in run.call_args_list], [
+            ['docker', 'run', '--rm', '-v', str(self.root) + ':/workspace',
+             '-w', '/workspace/Sources', '-e', 'CUSTOM', entry['image'],
+             'swift', 'test', '-c', 'debug', '--build-system', 'native'],
+            ['docker', 'run', '--rm', '-v', str(self.root) + ':/workspace',
+             '-w', '/workspace/Sources', '-e', 'CUSTOM', entry['image'],
+             'swift', 'test', '-c', 'release', '--build-system', 'native'],
+        ])
+        self.assertTrue(all(call.args[2]['CUSTOM'] == 'value' for call in run.call_args_list))
+
+    def test_demo_build_commands_disable_index_store(self):
+        parent = ROOT / '.build/demo-tests'
+        parent.mkdir(parents=True, exist_ok=True)
+        with tempfile.TemporaryDirectory(dir=parent) as directory:
+            root = Path(directory)
+            self.config['build_system'] = 'native'
+            environment = {'GITHUB_OUTPUT': str(root / 'outputs'), 'GITHUB_PATH': str(root / 'path')}
+            with patch.dict(os.environ, environment), patch.object(runner, 'prepare_demo'), \
+                    patch.object(runner, 'run', side_effect=[None, str(root / 'bin')]) as run:
+                runner.execute(root, 'demo', {}, self.config)
+            self.assertEqual([call.args[0] for call in run.call_args_list], [
+                ['swift', 'build', '-c', 'release', '--product', 'fixture-cli',
+                 '--disable-index-store', '--build-system', 'native'],
+                ['swift', 'build', '-c', 'release', '--show-bin-path',
+                 '--disable-index-store', '--build-system', 'native'],
+            ])
 
     def test_command_executes_in_checkout_not_package_subdirectory(self):
         self.config['package_directory'] = 'Sources'
@@ -256,7 +317,7 @@ class ExecutionTests(unittest.TestCase):
                 elif command[:2] == ['swift', 'build']:
                     symbols = root / '.build/symbol-graphs'
                     self.assertEqual(command, [
-                        'swift', 'build', '--build-system', 'native', *trait_flags,
+                        'swift', 'build', '--disable-index-store', '--build-system', 'native', *trait_flags,
                         '-Xswiftc', '-emit-symbol-graph', '-Xswiftc', '-emit-symbol-graph-dir',
                         '-Xswiftc', symbols, '-Xswiftc', '-emit-extension-block-symbols'])
                     builds.append(command)
