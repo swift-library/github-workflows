@@ -1,0 +1,44 @@
+name: Source policy
+on:
+  workflow_call:
+    inputs:
+      allow-terms:
+        description: Newline-separated allowed product names
+        type: string
+        default: ''
+      dependabot-exception:
+        description: Allow the exact signoff on an authenticated Dependabot commit
+        type: boolean
+        default: false
+permissions: {}
+jobs:
+  policy:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        repository: ${{ job.workflow_repository }}
+        ref: ${{ job.workflow_sha }}
+        path: .shared
+        persist-credentials: false
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        ref: ${{ github.event.pull_request.head.sha || github.sha }}
+        path: member
+        fetch-depth: 0
+        persist-credentials: false
+    - name: Install schema validator
+      run: |
+        python3 -m venv .shared/.build/venv
+        .shared/.build/venv/bin/python -m pip install --disable-pip-version-check --no-cache-dir -r .shared/requirements.txt
+        echo "$GITHUB_WORKSPACE/.shared/.build/venv/bin" >> "$GITHUB_PATH"
+    - working-directory: member
+      env:
+        GH_TOKEN: ${{ github.token }}
+        ALLOW_TERMS: ${{ inputs.allow-terms }}
+        DEPENDABOT_EXCEPTION: ${{ inputs.dependabot-exception }}
+      run: python3 ../.shared/scripts/check-policy.py
+    - if: hashFiles('member/.github/release.json') != ''
+      run: python3 .shared/scripts/validate-version --root member

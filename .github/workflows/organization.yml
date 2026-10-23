@@ -1,0 +1,75 @@
+name: Organization
+on:
+  workflow_call:
+    secrets:
+      organization-token:
+        description: Token with Administration read access to selected members for online mode
+        required: false
+    inputs:
+      organization:
+        type: string
+        required: true
+      declaration-repository:
+        type: string
+        required: true
+      declaration-revision:
+        type: string
+        required: true
+      catalog-repository:
+        type: string
+        default: ''
+      catalog-revision:
+        type: string
+        default: ''
+      members:
+        type: string
+        default: all
+      mode:
+        type: string
+        default: public
+permissions: {}
+jobs:
+  organization:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        repository: ${{ job.workflow_repository }}
+        ref: ${{ job.workflow_sha }}
+        path: .shared
+        persist-credentials: false
+    - name: Validate revisions and mode
+      env:
+        DECLARATION_REVISION: ${{ inputs.declaration-revision }}
+        CATALOG_REVISION: ${{ inputs.catalog-revision || inputs.declaration-revision }}
+        MODE: ${{ inputs.mode }}
+      shell: bash
+      run: |
+        [[ "$DECLARATION_REVISION" =~ ^[0-9a-f]{40}$ ]] || exit 1
+        [[ "$CATALOG_REVISION" =~ ^[0-9a-f]{40}$ ]] || exit 1
+        [[ "$MODE" == public || "$MODE" == online ]] || exit 1
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        repository: ${{ inputs.declaration-repository }}
+        ref: ${{ inputs.declaration-revision }}
+        path: declaration
+        persist-credentials: false
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        repository: ${{ inputs.catalog-repository || inputs.declaration-repository }}
+        ref: ${{ inputs.catalog-revision || inputs.declaration-revision }}
+        path: catalog
+        persist-credentials: false
+    - env:
+        GITHUB_TOKEN: ${{ secrets.organization-token || github.token }}
+        GH_TOKEN: ${{ secrets.organization-token || github.token }}
+        ORGANIZATION: ${{ inputs.organization }}
+        CATALOG_REPOSITORY: ${{ inputs.catalog-repository || inputs.declaration-repository }}
+        MEMBERS: ${{ inputs.members }}
+        MODE: ${{ inputs.mode }}
+      run: >-
+        python3 .shared/scripts/check-organization.py --declaration-root declaration --catalog-root catalog
+        --organization "$ORGANIZATION" --catalog-repository "$CATALOG_REPOSITORY"
+        --members "$MEMBERS" --mode "$MODE"

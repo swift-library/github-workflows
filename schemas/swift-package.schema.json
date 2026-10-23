@@ -1,0 +1,264 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Swift package validation",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "compilers": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "^[^\\r\\n]+$"
+          },
+          "runner": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "^[^\\r\\n]+$"
+          },
+          "xcode": {
+            "type": "string",
+            "pattern": "^[0-9]+\\.[0-9]+(?:\\.[0-9]+)?$"
+          },
+          "swift": {
+            "type": "string",
+            "pattern": "^[0-9]+\\.[0-9]+(?:\\.[0-9]+)?$"
+          }
+        },
+        "required": [
+          "name",
+          "runner",
+          "xcode"
+        ]
+      }
+    },
+    "format": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "paths": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))[^\\r\\n]+$"
+          }
+        }
+      },
+      "required": [
+        "paths"
+      ]
+    },
+    "package_directory": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))[^\\r\\n]+$"
+    },
+    "test_configurations": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "enum": [
+          "debug",
+          "release"
+        ]
+      }
+    },
+    "build_system": {
+      "enum": [
+        "native",
+        "xcode"
+      ]
+    },
+    "traits": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "type": "array",
+        "uniqueItems": true,
+        "items": {
+          "type": "string",
+          "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+        }
+      }
+    },
+    "environment": {
+      "type": "object",
+      "propertyNames": {
+        "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+      },
+      "additionalProperties": {
+        "type": "string"
+      }
+    },
+    "platforms": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "linux": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "name": {
+                "type": "string",
+                "minLength": 1,
+                "pattern": "^[^\\r\\n]+$"
+              },
+              "image": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/-]*@sha256:[0-9a-f]{64}$"
+              }
+            },
+            "required": [
+              "name",
+              "image"
+            ]
+          }
+        },
+        "apple": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "name": {
+                "type": "string",
+                "minLength": 1,
+                "pattern": "^[^\\r\\n]+$"
+              },
+              "platform": {
+                "enum": [
+                  "iOS",
+                  "tvOS",
+                  "watchOS",
+                  "visionOS"
+                ]
+              },
+              "scheme": {
+                "type": "string",
+                "minLength": 1,
+                "pattern": "^[^\\r\\n]+$"
+              },
+              "test": {
+                "type": "boolean"
+              },
+              "runner": {
+                "type": "string",
+                "minLength": 1,
+                "pattern": "^[^\\r\\n]+$"
+              },
+              "xcode": {
+                "type": "string",
+                "pattern": "^[0-9]+\\.[0-9]+(?:\\.[0-9]+)?$"
+              }
+            },
+            "required": [
+              "name",
+              "platform",
+              "scheme"
+            ]
+          }
+        }
+      },
+      "required": []
+    },
+    "docs": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "traits": {
+          "$ref": "#/properties/traits/items"
+        },
+        "targets": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "^[^\\r\\n]+$"
+          }
+        }
+      },
+      "required": [
+        "targets"
+      ]
+    },
+    "demo": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "product": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[^\\r\\n]+$"
+        },
+        "script": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))[^\\r\\n]+$"
+        }
+      },
+      "required": [
+        "product"
+      ]
+    },
+    "commands": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "^[^\\r\\n]+$"
+          },
+          "run": {
+            "type": "string",
+            "minLength": 1
+          },
+          "runner": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "^[^\\r\\n]+$"
+          },
+          "xcode": {
+            "type": "string",
+            "pattern": "^[0-9]+\\.[0-9]+(?:\\.[0-9]+)?$"
+          }
+        },
+        "required": [
+          "name",
+          "run"
+        ]
+      }
+    },
+    "timeout_minutes": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 360
+    }
+  },
+  "required": [
+    "compilers"
+  ]
+}

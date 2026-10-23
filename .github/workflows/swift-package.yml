@@ -1,0 +1,373 @@
+name: Swift package
+on:
+  workflow_call: {}
+permissions: {}
+jobs:
+  configure:
+    timeout-minutes: 45
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    outputs:
+      timeout: ${{ steps.configuration.outputs.timeout }}
+      minimum: ${{ steps.configuration.outputs.minimum }}
+      execution: ${{ steps.configuration.outputs.execution }}
+      declared: ${{ steps.configuration.outputs.declared }}
+      compiler: ${{ steps.configuration.outputs.compiler }}
+      compiler_declared: ${{ steps.configuration.outputs.compiler_declared }}
+      format: ${{ steps.configuration.outputs.format }}
+      format_declared: ${{ steps.configuration.outputs.format_declared }}
+      linux: ${{ steps.configuration.outputs.linux }}
+      linux_declared: ${{ steps.configuration.outputs.linux_declared }}
+      apple: ${{ steps.configuration.outputs.apple }}
+      apple_declared: ${{ steps.configuration.outputs.apple_declared }}
+      docs: ${{ steps.configuration.outputs.docs }}
+      docs_declared: ${{ steps.configuration.outputs.docs_declared }}
+      demo: ${{ steps.configuration.outputs.demo }}
+      demo_declared: ${{ steps.configuration.outputs.demo_declared }}
+      commands: ${{ steps.configuration.outputs.commands }}
+      commands_declared: ${{ steps.configuration.outputs.commands_declared }}
+    steps:
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        repository: ${{ job.workflow_repository }}
+        ref: ${{ job.workflow_sha }}
+        path: .shared
+        persist-credentials: false
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        ref: ${{ github.sha }}
+        path: member
+        fetch-depth: 1
+        persist-credentials: false
+    - name: Install schema validator
+      run: |
+        python3 -m venv .shared/.build/venv
+        .shared/.build/venv/bin/python -m pip install --disable-pip-version-check --no-cache-dir -r .shared/requirements.txt
+        echo "$GITHUB_WORKSPACE/.shared/.build/venv/bin" >> "$GITHUB_PATH"
+    - id: configuration
+      run: python3 .shared/scripts/swift_package_config.py --root member --github-output "$GITHUB_OUTPUT"
+  compiler:
+    needs: configure
+    runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: read
+    timeout-minutes: ${{ fromJSON(needs.configure.outputs.timeout) }}
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.configure.outputs.compiler) }}
+    steps:
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        repository: ${{ job.workflow_repository }}
+        ref: ${{ job.workflow_sha }}
+        path: .shared
+        persist-credentials: false
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        ref: ${{ github.sha }}
+        path: member
+        fetch-depth: 1
+        persist-credentials: false
+    - name: Install schema validator
+      run: |
+        python3 -m venv .shared/.build/venv
+        .shared/.build/venv/bin/python -m pip install --disable-pip-version-check --no-cache-dir -r .shared/requirements.txt
+        echo "$GITHUB_WORKSPACE/.shared/.build/venv/bin" >> "$GITHUB_PATH"
+    - uses: ./.shared/actions/select-toolchain
+      if: runner.os == 'macOS'
+      with:
+        xcode: ${{ matrix.xcode }}
+        swift: ${{ matrix.swift }}
+    - name: Verify selected compiler
+      env:
+        ENTRY: ${{ toJSON(matrix) }}
+        COMPILER_RECORD: ${{ runner.temp }}/compiler-version/${{ strategy.job-index }}.json
+      run: python3 .shared/scripts/verify-toolchain.py
+    - name: Run compiler
+      id: validation
+      env:
+        ENTRY: ${{ toJSON(matrix) }}
+      run: python3 .shared/scripts/run-validation.py compiler --root member --entry "$ENTRY"
+    - name: Share compiler version with the aggregate
+      if: needs.configure.outputs.minimum != ''
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      with:
+        name: compiler-${{ needs.configure.outputs.execution }}-${{ strategy.job-index }}
+        path: ${{ runner.temp }}/compiler-version/${{ strategy.job-index }}.json
+        retention-days: 1
+        overwrite: true
+        if-no-files-found: error
+
+  format:
+    needs: configure
+    runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: read
+    timeout-minutes: ${{ fromJSON(needs.configure.outputs.timeout) }}
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.configure.outputs.format) }}
+    steps:
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        repository: ${{ job.workflow_repository }}
+        ref: ${{ job.workflow_sha }}
+        path: .shared
+        persist-credentials: false
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        ref: ${{ github.sha }}
+        path: member
+        fetch-depth: 1
+        persist-credentials: false
+    - name: Install schema validator
+      run: |
+        python3 -m venv .shared/.build/venv
+        .shared/.build/venv/bin/python -m pip install --disable-pip-version-check --no-cache-dir -r .shared/requirements.txt
+        echo "$GITHUB_WORKSPACE/.shared/.build/venv/bin" >> "$GITHUB_PATH"
+    - uses: ./.shared/actions/select-toolchain
+      if: runner.os == 'macOS'
+      with:
+        xcode: ${{ matrix.xcode }}
+        swift: ${{ matrix.swift }}
+    - name: Run format
+      id: validation
+      env:
+        ENTRY: ${{ toJSON(matrix) }}
+      run: python3 .shared/scripts/run-validation.py format --root member --entry "$ENTRY"
+  linux:
+    needs: configure
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    timeout-minutes: ${{ fromJSON(needs.configure.outputs.timeout) }}
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.configure.outputs.linux) }}
+    steps:
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        repository: ${{ job.workflow_repository }}
+        ref: ${{ job.workflow_sha }}
+        path: .shared
+        persist-credentials: false
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        ref: ${{ github.sha }}
+        path: member
+        fetch-depth: 1
+        persist-credentials: false
+    - name: Install schema validator
+      run: |
+        python3 -m venv .shared/.build/venv
+        .shared/.build/venv/bin/python -m pip install --disable-pip-version-check --no-cache-dir -r .shared/requirements.txt
+        echo "$GITHUB_WORKSPACE/.shared/.build/venv/bin" >> "$GITHUB_PATH"
+    - name: Run linux
+      id: validation
+      env:
+        ENTRY: ${{ toJSON(matrix) }}
+      run: python3 .shared/scripts/run-validation.py linux --root member --entry "$ENTRY"
+    if: needs.configure.outputs.linux_declared == 'true'
+  apple:
+    needs: configure
+    runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: read
+    timeout-minutes: ${{ fromJSON(needs.configure.outputs.timeout) }}
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.configure.outputs.apple) }}
+    steps:
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        repository: ${{ job.workflow_repository }}
+        ref: ${{ job.workflow_sha }}
+        path: .shared
+        persist-credentials: false
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        ref: ${{ github.sha }}
+        path: member
+        fetch-depth: 1
+        persist-credentials: false
+    - name: Install schema validator
+      run: |
+        python3 -m venv .shared/.build/venv
+        .shared/.build/venv/bin/python -m pip install --disable-pip-version-check --no-cache-dir -r .shared/requirements.txt
+        echo "$GITHUB_WORKSPACE/.shared/.build/venv/bin" >> "$GITHUB_PATH"
+    - uses: ./.shared/actions/select-toolchain
+      if: runner.os == 'macOS'
+      with:
+        xcode: ${{ matrix.xcode }}
+        swift: ${{ matrix.swift }}
+    - name: Run apple
+      id: validation
+      env:
+        ENTRY: ${{ toJSON(matrix) }}
+      run: python3 .shared/scripts/run-validation.py apple --root member --entry "$ENTRY"
+    if: needs.configure.outputs.apple_declared == 'true'
+  docs:
+    needs: configure
+    runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: read
+    timeout-minutes: ${{ fromJSON(needs.configure.outputs.timeout) }}
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.configure.outputs.docs) }}
+    steps:
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        repository: ${{ job.workflow_repository }}
+        ref: ${{ job.workflow_sha }}
+        path: .shared
+        persist-credentials: false
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        ref: ${{ github.sha }}
+        path: member
+        fetch-depth: 1
+        persist-credentials: false
+    - name: Install schema validator
+      run: |
+        python3 -m venv .shared/.build/venv
+        .shared/.build/venv/bin/python -m pip install --disable-pip-version-check --no-cache-dir -r .shared/requirements.txt
+        echo "$GITHUB_WORKSPACE/.shared/.build/venv/bin" >> "$GITHUB_PATH"
+    - uses: ./.shared/actions/select-toolchain
+      if: runner.os == 'macOS'
+      with:
+        xcode: ${{ matrix.xcode }}
+        swift: ${{ matrix.swift }}
+    - name: Run docs
+      id: validation
+      env:
+        ENTRY: ${{ toJSON(matrix) }}
+      run: python3 .shared/scripts/run-validation.py docs --root member --entry "$ENTRY"
+    if: needs.configure.outputs.docs_declared == 'true'
+  demo:
+    needs: configure
+    runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: read
+    timeout-minutes: ${{ fromJSON(needs.configure.outputs.timeout) }}
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.configure.outputs.demo) }}
+    steps:
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        repository: ${{ job.workflow_repository }}
+        ref: ${{ job.workflow_sha }}
+        path: .shared
+        persist-credentials: false
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        ref: ${{ github.sha }}
+        path: member
+        fetch-depth: 1
+        persist-credentials: false
+    - name: Install schema validator
+      run: |
+        python3 -m venv .shared/.build/venv
+        .shared/.build/venv/bin/python -m pip install --disable-pip-version-check --no-cache-dir -r .shared/requirements.txt
+        echo "$GITHUB_WORKSPACE/.shared/.build/venv/bin" >> "$GITHUB_PATH"
+    - uses: ./.shared/actions/select-toolchain
+      if: runner.os == 'macOS'
+      with:
+        xcode: ${{ matrix.xcode }}
+        swift: ${{ matrix.swift }}
+    - name: Run demo
+      id: validation
+      env:
+        ENTRY: ${{ toJSON(matrix) }}
+      run: python3 .shared/scripts/run-validation.py demo --root member --entry "$ENTRY"
+    - uses: showxu/skills/skills/github-readme-design/scripts@db02bcb24426f4add0393444f868f1bffdf06f9d
+      with:
+        asset: terminal
+        command: check
+        recording-only: true
+        assets: ${{ steps.validation.outputs.demo_assets }}
+        executable: ${{ steps.validation.outputs.demo_executable }}
+        artifact-dir: ${{ runner.temp }}/demo-recording/${{ strategy.job-index }}
+    - name: Upload regenerated recording
+      if: failure()
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      with:
+        name: demo-recording-${{ needs.configure.outputs.execution }}-${{ strategy.job-index }}
+        path: ${{ runner.temp }}/demo-recording/${{ strategy.job-index }}/recording.json
+        retention-days: 7
+        if-no-files-found: ignore
+    if: needs.configure.outputs.demo_declared == 'true'
+  commands:
+    needs: configure
+    runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: read
+    timeout-minutes: ${{ fromJSON(needs.configure.outputs.timeout) }}
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.configure.outputs.commands) }}
+    steps:
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        repository: ${{ job.workflow_repository }}
+        ref: ${{ job.workflow_sha }}
+        path: .shared
+        persist-credentials: false
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        ref: ${{ github.sha }}
+        path: member
+        fetch-depth: 1
+        persist-credentials: false
+    - name: Install schema validator
+      run: |
+        python3 -m venv .shared/.build/venv
+        .shared/.build/venv/bin/python -m pip install --disable-pip-version-check --no-cache-dir -r .shared/requirements.txt
+        echo "$GITHUB_WORKSPACE/.shared/.build/venv/bin" >> "$GITHUB_PATH"
+    - uses: ./.shared/actions/select-toolchain
+      if: runner.os == 'macOS'
+      with:
+        xcode: ${{ matrix.xcode }}
+        swift: ${{ matrix.swift }}
+    - name: Run commands
+      id: validation
+      env:
+        ENTRY: ${{ toJSON(matrix) }}
+      run: python3 .shared/scripts/run-validation.py commands --root member --entry "$ENTRY"
+    if: needs.configure.outputs.commands_declared == 'true'
+  result:
+    timeout-minutes: 45
+    needs:
+    - configure
+    - compiler
+    - format
+    - linux
+    - apple
+    - docs
+    - demo
+    - commands
+    if: always()
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      actions: read
+    steps:
+    - env:
+        CONFIGURATION: ${{ needs.configure.result }}
+      run: test "$CONFIGURATION" = success
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        repository: ${{ job.workflow_repository }}
+        ref: ${{ job.workflow_sha }}
+        path: .shared
+        persist-credentials: false
+    - env:
+        NEEDS: ${{ toJSON(needs) }}
+        GH_TOKEN: ${{ github.token }}
+        MINIMUM_SWIFT: ${{ needs.configure.outputs.minimum }}
+        COMPILERS: ${{ needs.configure.outputs.compiler }}
+        EXECUTION: ${{ needs.configure.outputs.execution }}
+        DECLARED: ${{ needs.configure.outputs.declared }}
+      run: python3 .shared/scripts/check-result.py

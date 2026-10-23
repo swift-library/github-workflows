@@ -1,0 +1,28 @@
+{
+  "organization": {
+    "login": "example-org",
+    "about": "Example organization."
+  },
+  "groups": [
+    {
+      "repositories": [
+        {
+          "name": "core",
+          "about": "Swift libraries behind agents and skill: sources, locks, skills, instructions and watch."
+        },
+        {
+          "name": "cli",
+          "about": "Install and update agent skills and instructions, resolved to exact versions."
+        },
+        {
+          "name": "homebrew-tap",
+          "about": "Install agents with Homebrew."
+        },
+        {
+          "name": "agents-tools.github.io",
+          "about": "Source for the agents website."
+        }
+      ]
+    }
+  ]
+}

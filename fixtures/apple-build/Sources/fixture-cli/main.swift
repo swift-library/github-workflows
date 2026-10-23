@@ -1,0 +1,3 @@
+import Fixture
+
+print(greeting())

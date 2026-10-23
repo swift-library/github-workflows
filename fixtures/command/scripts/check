@@ -1,0 +1,3 @@
+#!/bin/sh
+echo 'Command rejection fixture' >&2
+exit 42

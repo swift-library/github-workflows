@@ -1,0 +1,71 @@
+name: Swift package release
+on:
+  workflow_call:
+    inputs:
+      tag:
+        type: string
+        required: true
+      accepted_commit:
+        type: string
+        required: true
+permissions: {}
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        repository: ${{ job.workflow_repository }}
+        ref: ${{ job.workflow_sha }}
+        path: .shared
+        persist-credentials: false
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        ref: ${{ inputs.accepted_commit }}
+        path: member
+        fetch-depth: 0
+        persist-credentials: false
+    - name: Install schema validator
+      run: |
+        python3 -m venv .shared/.build/venv
+        .shared/.build/venv/bin/python -m pip install --disable-pip-version-check --no-cache-dir -r .shared/requirements.txt
+        echo "$GITHUB_WORKSPACE/.shared/.build/venv/bin" >> "$GITHUB_PATH"
+    - name: Verify accepted release
+      env:
+        GH_TOKEN: ${{ github.token }}
+        RELEASE_TAG: ${{ inputs.tag }}
+        ACCEPTED_COMMIT: ${{ inputs.accepted_commit }}
+      run: python3 .shared/scripts/verify-release.py --root member --repository "$GITHUB_REPOSITORY" --tag "$RELEASE_TAG"
+        --accepted-commit "$ACCEPTED_COMMIT" --scratch "$RUNNER_TEMP/release"
+  publish:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        repository: ${{ job.workflow_repository }}
+        ref: ${{ job.workflow_sha }}
+        path: .shared
+        persist-credentials: false
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        ref: ${{ inputs.accepted_commit }}
+        path: member
+        fetch-depth: 0
+        persist-credentials: false
+    - name: Install schema validator
+      run: |
+        python3 -m venv .shared/.build/venv
+        .shared/.build/venv/bin/python -m pip install --disable-pip-version-check --no-cache-dir -r .shared/requirements.txt
+        echo "$GITHUB_WORKSPACE/.shared/.build/venv/bin" >> "$GITHUB_PATH"
+    - name: Verify accepted release
+      env:
+        GH_TOKEN: ${{ github.token }}
+        RELEASE_TAG: ${{ inputs.tag }}
+        ACCEPTED_COMMIT: ${{ inputs.accepted_commit }}
+      run: python3 .shared/scripts/verify-release.py --root member --repository "$GITHUB_REPOSITORY" --tag "$RELEASE_TAG"
+        --accepted-commit "$ACCEPTED_COMMIT" --scratch "$RUNNER_TEMP/release" --publish
+    needs: verify

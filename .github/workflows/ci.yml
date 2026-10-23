@@ -1,0 +1,113 @@
+name: CI
+on:
+  push:
+  pull_request:
+    types: [opened, edited, synchronize, reopened]
+  workflow_dispatch:
+permissions: {}
+jobs:
+  checks:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: |
+          python3 -m venv .build/venv
+          .build/venv/bin/python -m pip install --disable-pip-version-check --no-cache-dir -r requirements.txt
+          echo "$GITHUB_WORKSPACE/.build/venv/bin" >> "$GITHUB_PATH"
+      - run: go install github.com/rhysd/actionlint/cmd/actionlint@v1.7.12
+      - run: '"$(go env GOPATH)/bin/actionlint"'
+      - run: python3 -m unittest discover -s tests
+  validate:
+    permissions:
+      contents: read
+      actions: read
+    uses: ./.github/workflows/swift-package.yml
+  policy:
+    permissions:
+      contents: read
+    uses: ./.github/workflows/policy.yml
+    with:
+      allow-terms: |
+        ChatGPT
+        Codex
+        Cursor
+        Claude
+      dependabot-exception: true
+  fixtures:
+    runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - group: macos
+            runner: macos-26
+          - group: apple
+            runner: macos-26
+          - group: linux
+            runner: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ./actions/select-toolchain
+        if: runner.os == 'macOS'
+        with:
+          xcode: '26.6'
+      - run: |
+          python3 -m venv .build/venv
+          .build/venv/bin/python -m pip install --disable-pip-version-check --no-cache-dir -r requirements.txt
+          echo "$GITHUB_WORKSPACE/.build/venv/bin" >> "$GITHUB_PATH"
+      - env:
+          GROUP: ${{ matrix.group }}
+        run: python3 scripts/test-fixtures.py "$GROUP"
+  demo-fixture:
+    runs-on: macos-26
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ./actions/select-toolchain
+        with:
+          xcode: '26.6'
+      - id: presentation
+        run: |
+          revision="$(python3 scripts/check-ci.py --demo-revision)"
+          echo "revision=$revision" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: showxu/skills
+          ref: ${{ steps.presentation.outputs.revision }}
+          path: .build/presentation-source
+          sparse-checkout: skills/github-readme-design/scripts
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .build/presentation-source/skills/github-readme-design/scripts/.node-version
+          package-manager-cache: false
+      - run: npm ci --ignore-scripts --omit=dev --prefix .build/presentation-source/skills/github-readme-design/scripts
+      - run: |
+          python3 -m venv .build/venv
+          .build/venv/bin/python -m pip install --disable-pip-version-check --no-cache-dir -r requirements.txt
+          echo "$GITHUB_WORKSPACE/.build/venv/bin" >> "$GITHUB_PATH"
+      - run: python3 scripts/test-fixtures.py demo --toolchain .build/presentation-source/skills/github-readme-design/scripts
+  result:
+    needs: [checks, validate, policy, fixtures, demo-fixture]
+    if: always()
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - env:
+          NEEDS: ${{ toJSON(needs) }}
+        run: python3 scripts/check-ci.py

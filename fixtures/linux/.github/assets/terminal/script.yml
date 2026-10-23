@@ -1,0 +1,4 @@
+title: A greeting
+executable: fixture-cli
+steps:
+  - run: fixture-cli
