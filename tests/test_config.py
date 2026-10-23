@@ -208,7 +208,7 @@ class ExecutionTests(unittest.TestCase):
             for catalog in catalogs.values():
                 catalog.mkdir(parents=True)
             converted = []
-            dumps = []
+            builds = []
             trait_flags = ['--traits', 'Experimental,default']
 
             def execute(command, *args, **kwargs):
@@ -218,18 +218,18 @@ class ExecutionTests(unittest.TestCase):
                     return json.dumps({'targets': [{'name': name, 'c99name': module,
                                                     'path': 'Libraries/' + name}
                                                    for name, module in modules.items()]})
-                elif 'dump-symbol-graph' in command:
-                    self.assertIn('--emit-extension-block-symbols', command)
-                    self.assertEqual(command[-2:], ['--minimum-access-level', 'public'])
-                    self.assertEqual(command[4:4 + len(trait_flags)], trait_flags)
-                    dumps.append(command)
-                    symbols = root / '.build/reported-symbols'
-                    symbols.mkdir(parents=True, exist_ok=True)
+                elif command[:2] == ['swift', 'build']:
+                    symbols = root / '.build/symbol-graphs'
+                    self.assertEqual(command, [
+                        'swift', 'build', '--build-system', 'native', *trait_flags,
+                        '-Xswiftc', '-emit-symbol-graph', '-Xswiftc', '-emit-symbol-graph-dir',
+                        '-Xswiftc', symbols, '-Xswiftc', '-emit-extension-block-symbols'])
+                    builds.append(command)
+                    self.assertTrue(symbols.is_dir())
                     for module in [*modules.values(), 'MacroImplementation']:
                         for suffix in ('.symbols.json', '@Swift.symbols.json'):
                             (symbols / (module + suffix)).write_text(module + suffix)
                     (symbols / 'Feature.symbols.json.backup').write_text('backup')
-                    return f'-- Emitting symbol graphs\nFiles written to {symbols}\n'
                 else:
                     self.assertEqual(command[:3], ['xcrun', 'docc', 'convert'])
                     target = command[command.index('--fallback-display-name') + 1]
@@ -254,7 +254,20 @@ class ExecutionTests(unittest.TestCase):
                 trait_flags = ['--disable-default-traits']
                 runner.execute(root, 'docs', {}, self.config)
             self.assertEqual(converted, targets * 4)
-            self.assertEqual(len(dumps), 4)
+            self.assertEqual(len(builds), 4)
+
+    def test_docs_missing_main_graph_names_the_declared_target(self):
+        parent = ROOT / '.build/config-tests'
+        parent.mkdir(parents=True, exist_ok=True)
+        with tempfile.TemporaryDirectory(dir=parent) as directory:
+            root = Path(directory)
+            self.config['docs'] = {'targets': ['Hyphen-Feature']}
+            description = json.dumps({'targets': [{'name': 'Hyphen-Feature',
+                                                   'c99name': 'Hyphen_Feature', 'path': 'Sources/Feature'}]})
+            with patch.object(runner, 'run', side_effect=[description, None]) as run:
+                with self.assertRaisesRegex(ValueError, 'No main symbol graph.*Hyphen-Feature'):
+                    runner.execute(root, 'docs', {}, self.config)
+            self.assertEqual(run.call_count, 2)
 
     def test_aggregate_rejects_declared_skip_failure_and_cancellation(self):
         declared = ['configure', 'compiler', 'format']

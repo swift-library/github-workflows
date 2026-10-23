@@ -14,5 +14,6 @@ let package = Package(
   targets: [
     .target(name: "GreetingCore"),
     .target(name: "Greeting-Kit", dependencies: ["GreetingCore"]),
+    .executableTarget(name: "GreetingCLI", dependencies: ["Greeting-Kit"]),
   ]
 )

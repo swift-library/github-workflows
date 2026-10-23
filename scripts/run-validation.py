@@ -106,16 +106,11 @@ def execute(root, job, entry, config=None):
         description = json.loads(run(['swift', 'package', *swift_flags(config), 'describe', '--type', 'json'],
                                      package, environment, capture=True))
         targets = {target['name']: target for target in description['targets']}
-        dump = run(['swift', 'package', *swift_flags(config, config['docs'].get('traits')),
-                    'dump-symbol-graph', '--emit-extension-block-symbols', '--minimum-access-level', 'public'],
-                   package, environment, capture=True)
-        directories = [line.removeprefix('Files written to ') for line in dump.splitlines()
-                       if line.startswith('Files written to ')]
-        if len(directories) != 1:
-            raise ValueError('Symbol-graph dump did not report one output directory: ' + dump)
-        all_symbols = Path(directories[0])
-        if not all_symbols.is_absolute():
-            all_symbols = package / all_symbols
+        all_symbols = package / '.build/symbol-graphs'
+        all_symbols.mkdir(parents=True, exist_ok=True)
+        run(['swift', 'build', *swift_flags(config, config['docs'].get('traits')),
+             '-Xswiftc', '-emit-symbol-graph', '-Xswiftc', '-emit-symbol-graph-dir',
+             '-Xswiftc', all_symbols, '-Xswiftc', '-emit-extension-block-symbols'], package, environment)
         for target in config['docs']['targets']:
             output = package / '.build/docc' / target
             # SwiftPM also emits dependency graphs; each DocC conversion owns one module.
@@ -124,7 +119,10 @@ def execute(root, job, entry, config=None):
                 shutil.rmtree(symbols)
             symbols.mkdir(parents=True)
             module = targets[target]['c99name']
-            for graph in [all_symbols / (module + '.symbols.json'), *all_symbols.glob(module + '@*.symbols.json')]:
+            main_graph = all_symbols / (module + '.symbols.json')
+            if not main_graph.is_file():
+                raise ValueError('No main symbol graph for documentation target: ' + target)
+            for graph in [main_graph, *all_symbols.glob(module + '@*.symbols.json')]:
                 shutil.copyfile(graph, symbols / graph.name)
             catalogs = list(inside(package, targets[target]['path']).glob('*.docc'))
             if len(catalogs) > 1:
