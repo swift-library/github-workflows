@@ -105,6 +105,21 @@ class ExecutionTests(unittest.TestCase):
         self.root = ROOT / 'fixtures/passing'
         self.config = config.load(self.root)
 
+    def test_format_paths_are_existing_package_paths_after_option_terminator(self):
+        self.config['package_directory'] = 'Sources'
+        self.config['format'] = {'paths': ['Fixture']}
+        with patch.object(runner, 'run') as run:
+            runner.execute(self.root, 'format', {}, self.config)
+        self.assertEqual(run.call_args.args[0][-2:], ['--', self.root / 'Sources/Fixture'])
+
+    def test_format_rejects_missing_option_and_escaping_paths_before_running(self):
+        for path in ('--help', 'missing', '../outside'):
+            with self.subTest(path=path), patch.object(runner, 'run') as run:
+                self.config['format'] = {'paths': [path]}
+                with self.assertRaisesRegex(ValueError, 'does not exist|escapes'):
+                    runner.execute(self.root, 'format', {}, self.config)
+                run.assert_not_called()
+
     def test_compiler_runs_every_test_configuration_and_builds_every_trait(self):
         self.config.update(test_configurations=['debug', 'release'], traits=[['default'], ['Feature', 'default'], []], build_system='native', environment={'VALUE': 'declared'})
         with patch.object(runner, 'run') as run:

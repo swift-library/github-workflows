@@ -84,8 +84,13 @@ def execute(root, job, entry, config=None):
             if job == 'compiler':
                 run(['swift', 'build', '-c', 'release', *flags], package, environment)
     elif job == 'format':
+        paths = [inside(package, path) for path in config.get('format', {}).get(
+            'paths', ['Package.swift', 'Sources', 'Tests'])]
+        for path in paths:
+            if not path.exists():
+                raise ValueError('Formatting path does not exist: ' + str(path))
         run(['swift', 'format', 'lint', '--strict', '--recursive', '--configuration',
-             str(root / '.swift-format'), *config.get('format', {}).get('paths', ['Package.swift', 'Sources', 'Tests'])], package, environment)
+             str(root / '.swift-format'), '--', *paths], package, environment)
     elif job == 'apple':
         command = [*XCODEBUILD, '-scheme', entry['scheme'], '-derivedDataPath', str(package / '.build/apple'),
                    '-destination', 'generic/platform=' + entry['platform'], 'CODE_SIGNING_ALLOWED=NO']
