@@ -50,10 +50,20 @@
     {
       "name": "release-tools",
       "run": "python3 -m unittest discover -s Tests/ReleaseTools"
-    },
-    {
-      "name": "documentation",
-      "run": "scripts/check-docs"
     }
-  ]
+  ],
+  "docs": {
+    "targets": [
+      "AppStoreConnectCore",
+      "AppStoreConnectPublicAPI",
+      "AppStoreConnectWorkflow",
+      "AppStoreConnectWebSession",
+      "AppStoreConnectIrisAPI",
+      "AppStoreConnectCLI"
+    ],
+    "traits": [
+      "Experimental",
+      "default"
+    ]
+  }
 }

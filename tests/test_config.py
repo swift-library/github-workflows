@@ -38,6 +38,14 @@ class ConfigurationTests(unittest.TestCase):
             with self.subTest(extra=extra), self.assertRaises(ValueError):
                 config.validate({**self.value, **extra})
 
+    def test_docs_traits_accepts_one_trait_set(self):
+        for traits in ([], ['default'], ['Experimental', 'default']):
+            with self.subTest(traits=traits):
+                config.validate({**self.value, 'docs': {'targets': ['Fixture'], 'traits': traits}})
+        for traits in ('Experimental', [['Experimental']], ['Feature', 'Feature'], ['--help'], [1]):
+            with self.subTest(traits=traits), self.assertRaises(ValueError):
+                config.validate({**self.value, 'docs': {'targets': ['Fixture'], 'traits': traits}})
+
     def test_all_options_and_runner_overrides(self):
         value = config.load(ROOT / 'fixtures/passing')
         value.update(test_configurations=['debug', 'release'], build_system='native',
@@ -194,19 +202,34 @@ class ExecutionTests(unittest.TestCase):
             root = Path(directory)
             targets = ['Feature', 'FeatureCore', 'Hyphen-Feature']
             modules = {'Feature': 'Feature', 'FeatureCore': 'FeatureCore', 'Hyphen-Feature': 'Hyphen_Feature'}
-            self.config['docs']['targets'] = targets
+            self.config['docs'] = {'targets': targets, 'traits': ['Experimental', 'default']}
+            self.config['build_system'] = 'native'
+            catalogs = {name: root / 'Libraries' / name / (name + '.docc') for name in targets}
+            for catalog in catalogs.values():
+                catalog.mkdir(parents=True)
             converted = []
+            dumps = []
+            trait_flags = ['--traits', 'Experimental,default']
 
             def execute(command, *args, **kwargs):
-                if command[:3] == ['swift', 'package', 'describe']:
-                    return json.dumps({'targets': [{'name': name, 'c99name': module}
+                if command[:2] == ['swift', 'package']:
+                    self.assertEqual(command[2:4], ['--build-system', 'native'])
+                if 'describe' in command:
+                    return json.dumps({'targets': [{'name': name, 'c99name': module,
+                                                    'path': 'Libraries/' + name}
                                                    for name, module in modules.items()]})
-                elif command[:2] == ['swift', 'build']:
-                    symbols = Path(command[-1])
+                elif 'dump-symbol-graph' in command:
+                    self.assertIn('--emit-extension-block-symbols', command)
+                    self.assertEqual(command[-2:], ['--minimum-access-level', 'public'])
+                    self.assertEqual(command[4:4 + len(trait_flags)], trait_flags)
+                    dumps.append(command)
+                    symbols = root / '.build/reported-symbols'
+                    symbols.mkdir(parents=True, exist_ok=True)
                     for module in [*modules.values(), 'MacroImplementation']:
                         for suffix in ('.symbols.json', '@Swift.symbols.json'):
                             (symbols / (module + suffix)).write_text(module + suffix)
                     (symbols / 'Feature.symbols.json.backup').write_text('backup')
+                    return f'-- Emitting symbol graphs\nFiles written to {symbols}\n'
                 else:
                     self.assertEqual(command[:3], ['xcrun', 'docc', 'convert'])
                     target = command[command.index('--fallback-display-name') + 1]
@@ -215,6 +238,7 @@ class ExecutionTests(unittest.TestCase):
                     self.assertEqual({path.name for path in symbols.iterdir()}, expected)
                     for path in symbols.iterdir():
                         self.assertEqual(path.read_text(), path.name)
+                    self.assertIn(catalogs[target], command)
                     self.assertIn('--warnings-as-errors', command)
                     converted.append(target)
 
@@ -223,7 +247,14 @@ class ExecutionTests(unittest.TestCase):
                 for target in targets:
                     (root / '.build/docc' / target / 'symbols/Stale.symbols.json').write_text('stale')
                 runner.execute(root, 'docs', {}, self.config)
-            self.assertEqual(converted, targets * 2)
+                del self.config['docs']['traits']
+                trait_flags = []
+                runner.execute(root, 'docs', {}, self.config)
+                self.config['docs']['traits'] = []
+                trait_flags = ['--disable-default-traits']
+                runner.execute(root, 'docs', {}, self.config)
+            self.assertEqual(converted, targets * 4)
+            self.assertEqual(len(dumps), 4)
 
     def test_aggregate_rejects_declared_skip_failure_and_cancellation(self):
         declared = ['configure', 'compiler', 'format']

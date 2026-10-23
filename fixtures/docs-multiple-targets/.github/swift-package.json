@@ -2,5 +2,5 @@
   "compilers": [
     {"name": "macos-26-swift-6.3", "runner": "macos-26", "xcode": "26.6"}
   ],
-  "docs": {"targets": ["Greeting-Kit", "GreetingCore"]}
+  "docs": {"targets": ["Greeting-Kit", "GreetingCore"], "traits": ["Experimental", "default"]}
 }

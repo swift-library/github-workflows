@@ -103,24 +103,30 @@ def execute(root, job, entry, config=None):
             finally:
                 run(['xcrun', 'simctl', 'delete', device], package, environment)
     elif job == 'docs':
-        description = json.loads(run(['swift', 'package', 'describe', '--type', 'json'],
+        description = json.loads(run(['swift', 'package', *swift_flags(config), 'describe', '--type', 'json'],
                                      package, environment, capture=True))
-        modules = {target['name']: target['c99name'] for target in description['targets']}
+        targets = {target['name']: target for target in description['targets']}
+        dump = run(['swift', 'package', *swift_flags(config, config['docs'].get('traits')),
+                    'dump-symbol-graph', '--emit-extension-block-symbols', '--minimum-access-level', 'public'],
+                   package, environment, capture=True)
+        directories = [line.removeprefix('Files written to ') for line in dump.splitlines()
+                       if line.startswith('Files written to ')]
+        if len(directories) != 1:
+            raise ValueError('Symbol-graph dump did not report one output directory: ' + dump)
+        all_symbols = Path(directories[0])
+        if not all_symbols.is_absolute():
+            all_symbols = package / all_symbols
         for target in config['docs']['targets']:
             output = package / '.build/docc' / target
-            all_symbols = output / 'all-symbols'
-            all_symbols.mkdir(parents=True, exist_ok=True)
-            run(['swift', 'build', '--target', target, *swift_flags(config), '-Xswiftc', '-emit-symbol-graph',
-                 '-Xswiftc', '-emit-symbol-graph-dir', '-Xswiftc', str(all_symbols)], package, environment)
             # SwiftPM also emits dependency graphs; each DocC conversion owns one module.
             symbols = output / 'symbols'
             if symbols.exists():
                 shutil.rmtree(symbols)
-            symbols.mkdir()
-            module = modules[target]
+            symbols.mkdir(parents=True)
+            module = targets[target]['c99name']
             for graph in [all_symbols / (module + '.symbols.json'), *all_symbols.glob(module + '@*.symbols.json')]:
                 shutil.copyfile(graph, symbols / graph.name)
-            catalogs = list((package / 'Sources' / target).glob('*.docc'))
+            catalogs = list(inside(package, targets[target]['path']).glob('*.docc'))
             if len(catalogs) > 1:
                 raise ValueError('Expected at most one documentation catalog per target')
             run(['xcrun', 'docc', 'convert', *catalogs, '--additional-symbol-graph-dir', symbols,

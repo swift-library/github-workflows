@@ -7,3 +7,4 @@ Greeting creation and extensions.
 ### Greetings
 
 - ``greeting()``
+- ``experimentalGreeting()``
