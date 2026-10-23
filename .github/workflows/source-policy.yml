@@ -1,7 +1,8 @@
 name: Source policy
 on:
   push: {}
-  pull_request: {}
+  pull_request:
+    types: [opened, edited, synchronize, reopened]
   workflow_dispatch: {}
 permissions:
   contents: read

@@ -71,7 +71,10 @@ migration examples live in `fixtures/members/`.
 
 ```yaml
 name: CI
-on: [push, pull_request]
+on:
+  push:
+  pull_request:
+    types: [opened, edited, synchronize, reopened]
 permissions:
   contents: read
   actions: read
