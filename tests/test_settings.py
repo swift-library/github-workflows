@@ -95,13 +95,14 @@ class SettingsTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 settings.validate_declaration(value)
 
-    def test_public_membership_excludes_declared_private_repositories(self):
+    def test_public_membership_excludes_private_archived_and_fork_repositories(self):
         def get(path, **kwargs):
             organization = path.split('/')[1]
             names = [name for name, member in self.declaration['repositories'].items()
                      if name.startswith(organization + '/') and member.get('visibility', 'public') == 'public']
-            return [[{'full_name': name, 'private': False, 'archived': False} for name in names]
-                    + [{'full_name': organization + '/.github-private', 'private': True, 'archived': False}]]
+            return [[{'full_name': name, 'private': False, 'archived': False, 'fork': False} for name in names]
+                    + [dict(full_name=organization + '/' + flag, private=False, archived=False, fork=False)
+                       | {flag: True} for flag in ('private', 'archived', 'fork')]]
         with mock.patch.object(settings, 'check_repository', return_value=[]):
             self.assertEqual(settings.check_online(self.declaration, get), [])
 
@@ -177,7 +178,7 @@ class SettingsTests(unittest.TestCase):
         def get(path, **kwargs):
             organization = path.split('/')[1]
             names = [name for name in self.declaration['repositories'] if name.startswith(organization + '/')]
-            return [[{'full_name': name, 'private': False, 'archived': False}] for name in names + [organization + '/new']]
+            return [[{'full_name': name, 'private': False, 'archived': False, 'fork': False}] for name in names + [organization + '/new']]
         with mock.patch.object(settings, 'check_repository', return_value=[]) as check:
             findings = settings.check_online(self.declaration, get)
         self.assertEqual(check.call_count, len(self.declaration['repositories']))

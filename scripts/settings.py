@@ -234,12 +234,14 @@ def check_online(declaration, get=api):
             inventory = collection(f"orgs/{organization}/repos?type=public&per_page=100", get)
             if any(not isinstance(item, dict) or not isinstance(item.get("full_name"), str)
                    or not isinstance(item.get("private"), bool)
-                   or not isinstance(item.get("archived"), bool) for item in inventory):
+                   or not isinstance(item.get("archived"), bool)
+                   or not isinstance(item.get("fork"), bool) for item in inventory):
                 raise Unavailable("invalid repository inventory")
             expected = sorted(name for name, member in declaration["repositories"].items()
                               if name.startswith(organization + "/")
                               and member.get("visibility", "public") == "public")
-            observed = sorted(item["full_name"] for item in inventory if not item["private"] and not item["archived"])
+            observed = sorted(item["full_name"] for item in inventory
+                              if not item["private"] and not item["archived"] and not item["fork"])
             results += compare(organization + ".public_members", expected, observed)
         except Unavailable as error:
             results.append(f"UNKNOWN {organization}.public_members: {error}")
