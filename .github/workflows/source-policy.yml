@@ -1,6 +1,7 @@
 name: Source policy
 on:
-  push: {}
+  push:
+    branches: [master]
   pull_request:
     types: [opened, edited, synchronize, reopened]
   workflow_dispatch: {}

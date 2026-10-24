@@ -73,23 +73,40 @@ publishes them.
 
 ## Calling validation and policy
 
+Callers run validation once for each pull-request push and once for each push
+to the default branch. Source policy runs on the same events and also when a
+pull request is edited, because it checks the title:
+
 ```yaml
 name: CI
 on:
   push:
+    branches: [master]
+  pull_request:
+    types: [opened, synchronize, reopened]
+permissions:
+  contents: read
+  actions: read
+jobs:
+  validate:
+    uses: swift-library/github-workflows/.github/workflows/swift-package.yml@<full-sha> # vX.Y.Z
+```
+
+```yaml
+name: Source policy
+on:
+  push:
+    branches: [master]
   pull_request:
     types: [opened, edited, synchronize, reopened]
 permissions:
   contents: read
-  actions: read
 jobs:
   policy:
     uses: swift-library/github-workflows/.github/workflows/policy.yml@<full-sha> # vX.Y.Z
     with:
       allow-terms: ''
       dependabot-exception: false
-  validate:
-    uses: swift-library/github-workflows/.github/workflows/swift-package.yml@<full-sha> # vX.Y.Z
 ```
 
 `allow-terms` is a newline-separated, case-insensitive product-name allowlist.
@@ -245,7 +262,8 @@ changed-step diagnostic and recording diff. Build and toolchain errors fail the
 harness. Regenerate the passing recording with the same toolchain's
 `node <toolchain>/src/cli.ts terminal record --script <script.yml> --executable <built-cli> --out <recording.json>`.
 
-CI calls the validation and policy workflows with passing fixture packages.
+CI calls the validation workflow with passing fixture packages, and the source
+policy workflow calls the policy workflow for this repository's own changes.
 The root configuration targets `fixtures/passing` and declares every validation
 job type. The scripts exercise each job's rejection path against failing
 fixtures on its matching runner. A failing reusable-workflow call cannot be an

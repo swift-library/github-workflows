@@ -12,7 +12,7 @@ ci = load_script('ci_result', 'check-ci.py')
 class CIResultTests(unittest.TestCase):
     def test_all_dependencies_must_succeed(self):
         needs = {name: {'result': 'success'}
-                 for name in ('checks', 'validate', 'policy', 'fixtures', 'demo-fixture')}
+                 for name in ('checks', 'validate', 'fixtures', 'demo-fixture')}
         ci.check(needs)
         for name in needs:
             for result in ('failure', 'cancelled', 'skipped'):
