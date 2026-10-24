@@ -51,6 +51,11 @@ import sys
 
 program, path = shlex.split(sys.argv[-1])
 service = program.removeprefix("git-")
+# Once a push is attempted, the network stays down for the rest of the run.
+outage = os.environ.get("OUTAGE_FROM_PUSH")
+if outage and (service == "receive-pack" or os.path.exists(outage)):
+    open(outage, "w").close()
+    sys.exit("ssh: connect to host github.com: Network is unreachable")
 sys.exit(subprocess.call(["git", service, os.path.join(os.environ["FAKE_GITHUB"], path)]))
 """
 
@@ -272,6 +277,14 @@ class PublishTemplateTests(unittest.TestCase):
         create, = self.gh_calls(["pr", "create"])
         self.assertIn("`Assets/Mark.txt`, `Docs/Guide.md`", create[11])
         self.assertEqual(self.git("rev-parse", "--abbrev-ref", "HEAD", cwd=self.template).strip(), branch)
+
+    def test_network_outage_after_commit_still_prints_the_recovery(self):
+        result = self.publish(expected=1, env={"OUTAGE_FROM_PUSH": str(self.root / "outage")})
+        self.assertIn("Network is unreachable", result.stderr)
+        self.assertIn("Delete the publication branch, then run the same command again:", result.stderr)
+        self.assertEqual(len(self.start_over(result.stderr)), 2)
+        self.publish()
+        self.published_branch()
 
     def test_failed_pull_request_is_published_again_after_starting_over(self):
         result = self.publish(expected=1, env={"GH_FAIL": "create"})

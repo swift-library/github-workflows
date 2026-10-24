@@ -253,9 +253,8 @@ def existing_branch(template, branch):
     return local, remote
 
 
-def start_over(template, base, branch):
+def start_over(template, base, branch, *, local, remote):
     """Describe how to delete a publication branch so that the same command publishes again."""
-    local, remote = existing_branch(template, branch)
     checkout = shlex.quote(str(template))
     commands = []
     if local:
@@ -288,10 +287,13 @@ def pull_request(template, repository, base, branch, title, body):
     head = git("rev-parse", "HEAD", cwd=template).strip()
     try:
         git("push", "--quiet", "origin", f"HEAD:refs/heads/{branch}", cwd=template)
+    except PublishError as error:
+        raise PublishError(f"{error}\n{start_over(template, base, branch, local=True, remote=False)}") from error
+    try:
         url = gh("pr", "create", "-R", repository, "--base", base, "--head", branch,
                  "--title", title, "--body", body).strip()
     except PublishError as error:
-        raise PublishError(f"{error}\n{start_over(template, base, branch)}") from error
+        raise PublishError(f"{error}\n{start_over(template, base, branch, local=True, remote=True)}") from error
     print(url)
     if gh("api", f"repos/{repository}", "--jq", ".allow_auto_merge").strip() != "true":
         print(f"auto-merge is disabled for {repository}; merge after the required checks pass")
@@ -320,10 +322,11 @@ def publish(declaration, template, *, write_only=False):
     if not write_only:
         branch = publication_branch(declaration_commit, sources)
         base, _ = remote_default(template)
-        if any(existing_branch(template, branch)):
+        local, remote = existing_branch(template, branch)
+        if local or remote:
             raise PublishError(
                 f"branch {branch} already exists: these releases were published before. "
-                + start_over(template, base, branch)
+                + start_over(template, base, branch, local=local, remote=remote)
             )
         require_current(template)
     check_destinations(template, [target for generator in generators for target in generator["files"]])
