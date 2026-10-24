@@ -3,6 +3,7 @@ import importlib.util
 import json
 import os
 from pathlib import Path
+import shlex
 import subprocess
 import sys
 import tempfile
@@ -63,19 +64,12 @@ arguments = sys.argv[1:]
 with open(os.environ["GH_LOG"], "a") as log:
     log.write(json.dumps(arguments) + "\\n")
 state_path = Path(os.environ["GH_STATE"])
-state = json.loads(state_path.read_text()) if state_path.exists() else {"pulls": {}, "auto": []}
+state = json.loads(state_path.read_text()) if state_path.exists() else {"pulls": 0}
 if arguments[0] == "pr" and os.environ.get("GH_FAIL") == arguments[1]:
     sys.exit("gh: request failed")
-if arguments[:2] == ["pr", "list"]:
-    print(state["pulls"].get(arguments[arguments.index("--head") + 1], ""))
-elif arguments[:2] == ["pr", "create"]:
-    url = f"https://github.com/example/template/pull/{len(state['pulls']) + 1}"
-    state["pulls"][arguments[arguments.index("--head") + 1]] = url
-    print(url)
-elif arguments[:2] == ["pr", "view"]:
-    print("true" if arguments[2] in state["auto"] else "false")
-elif arguments[:2] == ["pr", "merge"]:
-    state["auto"].append(arguments[2])
+if arguments[:2] == ["pr", "create"]:
+    state["pulls"] += 1
+    print(f"https://github.com/example/template/pull/{state['pulls']}")
 elif arguments[0] == "api":
     print(os.environ.get("AUTO_MERGE", "false"))
 state_path.write_text(json.dumps(state))
@@ -256,59 +250,63 @@ class PublishTemplateTests(unittest.TestCase):
             "--body", "", "--match-head-commit", head,
         ])
 
-    def test_rerun_after_a_failed_push_completes_the_publication(self):
+    def start_over(self, stderr):
+        commands = [line.strip() for line in stderr.splitlines() if line.startswith("  git -C ")]
+        self.assertTrue(commands, stderr)
+        for command in commands:
+            subprocess.run(shlex.split(command), cwd=self.root / "elsewhere", env=self.env, check=True,
+                           capture_output=True)
+        return commands
+
+    def test_failed_push_is_published_again_after_starting_over(self):
         hook = self.remotes / "example/template.git/hooks/pre-receive"
         hook.write_text("#!/bin/sh\nexit 1\n")
         hook.chmod(0o755)
         result = self.publish(expected=1)
-        self.assertIn("Run the same command again to resume the publication.", result.stderr)
-        self.assertEqual(self.gh_calls(["pr", "create"]), [])
+        self.assertIn("Delete the publication branch, then run the same command again:", result.stderr)
+        commands = self.start_over(result.stderr)
+        self.assertEqual(len(commands), 2, commands)
         hook.unlink()
-        result = self.publish()
-        self.assertIn("resuming chore/publish-", result.stdout)
+        self.publish()
         branch, _ = self.published_branch()
         create, = self.gh_calls(["pr", "create"])
         self.assertIn("`Assets/Mark.txt`, `Docs/Guide.md`", create[11])
         self.assertEqual(self.git("rev-parse", "--abbrev-ref", "HEAD", cwd=self.template).strip(), branch)
 
-    def test_rerun_after_a_failed_pull_request_completes_the_publication(self):
-        self.publish(expected=1, env={"GH_FAIL": "create"})
+    def test_failed_pull_request_is_published_again_after_starting_over(self):
+        result = self.publish(expected=1, env={"GH_FAIL": "create"})
+        commands = self.start_over(result.stderr)
+        self.assertIn("push origin --delete chore/publish-", commands[-1])
+        self.publish()
         self.published_branch()
-        result = self.publish()
-        self.assertIn("resuming chore/publish-", result.stdout)
-        self.assertIn("https://github.com/example/template/pull/1", result.stdout)
         self.assertEqual(len(self.gh_calls(["pr", "create"])), 2)
 
-    def test_rerun_after_a_failed_auto_merge_request_completes_the_publication(self):
-        self.publish(expected=1, env={"AUTO_MERGE": "true", "GH_FAIL": "merge"})
-        result = self.publish(env={"AUTO_MERGE": "true"})
-        self.assertIn("auto-merge requested", result.stdout)
+    def test_failed_auto_merge_request_leaves_the_open_pull_request(self):
+        result = self.publish(expected=1, env={"AUTO_MERGE": "true", "GH_FAIL": "merge"})
+        self.assertIn("https://github.com/example/template/pull/1 is open; merge it after the required checks pass",
+                      result.stderr)
         self.assertEqual(len(self.gh_calls(["pr", "create"])), 1)
-        self.assertEqual(len(self.gh_calls(["pr", "merge"])), 2)
 
-    def test_published_branch_resumes_from_the_default_branch(self):
+    def test_published_releases_stop_before_writing(self):
         self.publish()
         branch, _ = self.published_branch()
-        self.git("switch", "-q", "master", cwd=self.template)
-        self.git("branch", "-q", "-D", branch, cwd=self.template)
-        result = self.publish()
-        self.assertIn(f"resuming {branch}", result.stdout)
-        self.assertEqual(len(self.gh_calls(["pr", "create"])), 1)
-
-    def test_branch_on_an_older_default_head_is_not_resumed(self):
-        self.publish(expected=1, env={"GH_FAIL": "create"})
-        other = self.root / "other"
-        self.git("clone", "-q", "https://github.com/example/template.git", str(other), cwd=self.root)
-        self.commit(other, {"Keep.md": "newer\n"})
+        guide = (self.template / "Docs/Guide.md").read_text()
+        calls = len(self.gh_calls())
         result = self.publish(expected=1)
-        self.assertIn("does not build on origin's master head", result.stderr)
+        self.assertIn(f"branch {branch} already exists", result.stderr)
+        self.assertEqual((self.template / "Docs/Guide.md").read_text(), guide)
+        self.assertEqual(len(self.gh_calls()), calls)
+        self.start_over(result.stderr)
+        self.assertEqual(self.git("rev-parse", "--abbrev-ref", "HEAD", cwd=self.template).strip(), "master")
+        self.publish()
+        self.assertEqual(len(self.gh_calls(["pr", "create"])), 2)
 
     def test_stale_template_fails_before_publishing(self):
         other = self.root / "other"
         self.git("clone", "-q", "https://github.com/example/template.git", str(other), cwd=self.root)
         self.commit(other, {"Keep.md": "newer\n"})
         result = self.publish(expected=1)
-        self.assertIn("is neither origin's master head nor branch", result.stderr)
+        self.assertIn("is not origin's master head", result.stderr)
         self.assertEqual(self.gh_calls(), [])
 
     def test_undeclared_generated_file_fails_before_writing(self):

@@ -21,7 +21,6 @@ GITHUB_URL = re.compile(
     r"(?:https://github\.com/|ssh://git@github\.com/|git@github\.com:)"
     r"(?P<repository>[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+?)(?:\.git)?/?"
 )
-RESUME = "Run the same command again to resume the publication."
 
 
 class PublishError(Exception):
@@ -244,38 +243,28 @@ def publication_branch(declaration_commit, sources):
     return "chore/publish-" + digest[:12]
 
 
-def prepare_checkout(template, branch):
-    """Return origin's default branch, its head, and whether the checkout holds an earlier publication commit."""
-    base, base_commit = remote_default(template)
-    head = git("rev-parse", "HEAD", cwd=template).strip()
-    current = subprocess.run(
-        ["git", "symbolic-ref", "--quiet", "--short", "HEAD"], cwd=template,
-        capture_output=True, text=True, stdin=subprocess.DEVNULL,
-    ).stdout.strip()
+def existing_branch(template, branch):
+    """Return whether the publication branch exists in the template checkout and on origin."""
     local = subprocess.run(
         ["git", "rev-parse", "--verify", "--quiet", f"refs/heads/{branch}"], cwd=template,
-        capture_output=True, text=True, stdin=subprocess.DEVNULL,
-    ).stdout.strip()
-    remote = git("ls-remote", "--heads", "origin", f"refs/heads/{branch}", cwd=template).partition("\t")[0]
-    if current != branch:
-        if head != base_commit:
-            raise PublishError(f"{template}: HEAD {head} is neither origin's {base} head nor branch {branch}")
-        if not local and not remote:
-            return base, base_commit, False
-        if not local:
-            git("fetch", "--quiet", "origin", f"refs/heads/{branch}:refs/heads/{branch}", cwd=template)
-        git("switch", "--quiet", branch, cwd=template)
-        head = git("rev-parse", "HEAD", cwd=template).strip()
-    parents = git("rev-list", "--parents", "-n", "1", "HEAD", cwd=template).split()[1:]
-    if parents != [base_commit]:
-        raise PublishError(
-            f"branch {branch} does not build on origin's {base} head {base_commit}; "
-            "delete the branch locally and on origin to publish again"
-        )
-    if remote and remote != head:
-        raise PublishError(f"branch {branch} on origin is {remote}, not the local commit {head}")
-    print(f"resuming {branch}")
-    return base, base_commit, True
+        capture_output=True, stdin=subprocess.DEVNULL,
+    ).returncode == 0
+    remote = bool(git("ls-remote", "--heads", "origin", f"refs/heads/{branch}", cwd=template).strip())
+    return local, remote
+
+
+def start_over(template, base, branch):
+    """Describe how to delete a publication branch so that the same command publishes again."""
+    local, remote = existing_branch(template, branch)
+    checkout = shlex.quote(str(template))
+    commands = []
+    if local:
+        commands += [f"git -C {checkout} switch {shlex.quote(base)}", f"git -C {checkout} branch -D {branch}"]
+    if remote:
+        commands.append(f"git -C {checkout} push origin --delete {branch}")
+    return "Delete the publication branch, then run the same command again:\n" + "\n".join(
+        f"  {command}" for command in commands
+    )
 
 
 def pull_request_text(sources, declaration_commit, changed):
@@ -295,26 +284,23 @@ def pull_request_text(sources, declaration_commit, changed):
     return title, body
 
 
-def finish(template, repository, base, branch, title, body):
+def pull_request(template, repository, base, branch, title, body):
     head = git("rev-parse", "HEAD", cwd=template).strip()
     try:
-        remote = git("ls-remote", "--heads", "origin", f"refs/heads/{branch}", cwd=template).partition("\t")[0]
-        if remote != head:
-            git("push", "--quiet", "origin", f"HEAD:refs/heads/{branch}", cwd=template)
-        url = gh("pr", "list", "-R", repository, "--head", branch, "--state", "open",
-                 "--json", "url", "--jq", ".[0].url // empty").strip()
-        if not url:
-            url = gh("pr", "create", "-R", repository, "--base", base, "--head", branch,
-                     "--title", title, "--body", body).strip()
-        print(url)
-        if gh("api", f"repos/{repository}", "--jq", ".allow_auto_merge").strip() != "true":
-            print(f"auto-merge is disabled for {repository}; merge after the required checks pass")
-            return
-        if gh("pr", "view", url, "--json", "autoMergeRequest", "--jq", ".autoMergeRequest != null").strip() != "true":
-            gh("pr", "merge", url, "--auto", "--squash", "--body", "", "--match-head-commit", head)
-        print("auto-merge requested")
+        git("push", "--quiet", "origin", f"HEAD:refs/heads/{branch}", cwd=template)
+        url = gh("pr", "create", "-R", repository, "--base", base, "--head", branch,
+                 "--title", title, "--body", body).strip()
     except PublishError as error:
-        raise PublishError(f"{error}\n{RESUME}") from error
+        raise PublishError(f"{error}\n{start_over(template, base, branch)}") from error
+    print(url)
+    if gh("api", f"repos/{repository}", "--jq", ".allow_auto_merge").strip() != "true":
+        print(f"auto-merge is disabled for {repository}; merge after the required checks pass")
+        return
+    try:
+        gh("pr", "merge", url, "--auto", "--squash", "--body", "", "--match-head-commit", head)
+    except PublishError as error:
+        raise PublishError(f"{error}\n{url} is open; merge it after the required checks pass") from error
+    print("auto-merge requested")
 
 
 def publish(declaration, template, *, write_only=False):
@@ -331,10 +317,15 @@ def publish(declaration, template, *, write_only=False):
     sources = {name: latest_release(source_url(name)) for name in dict.fromkeys(g["repository"] for g in generators)}
     for name, (tag, commit) in sources.items():
         print(f"{name} {tag} {commit}")
-    resuming = False
     if not write_only:
         branch = publication_branch(declaration_commit, sources)
-        base, base_commit, resuming = prepare_checkout(template, branch)
+        base, _ = remote_default(template)
+        if any(existing_branch(template, branch)):
+            raise PublishError(
+                f"branch {branch} already exists: these releases were published before. "
+                + start_over(template, base, branch)
+            )
+        require_current(template)
     check_destinations(template, [target for generator in generators for target in generator["files"]])
     with tempfile.TemporaryDirectory(prefix="publish-template-") as temporary:
         root = Path(temporary)
@@ -350,25 +341,12 @@ def publish(declaration, template, *, write_only=False):
             }, output)
             outputs.append(output)
         pending = [differences(template, generator["files"], output) for generator, output in zip(generators, outputs)]
-        if resuming and any(pending):
-            raise PublishError(
-                f"branch {branch} differs from the current releases' output; "
-                "delete the branch locally and on origin to publish again"
-            )
         for generator, output, targets in zip(generators, outputs, pending):
             write(template, generator["files"], output, targets)
-    if resuming:
-        changed = {
-            name: git("diff", "--name-only", base_commit, "HEAD", "--",
-                      *[target for g in generators if g["repository"] == name for target in g["files"]],
-                      cwd=template).split()
-            for name in sources
-        }
-    else:
-        changed = {name: [] for name in sources}
-        for generator, targets in zip(generators, pending):
-            changed[generator["repository"]] += targets
-        changed = {name: sorted(paths) for name, paths in changed.items()}
+    changed = {name: [] for name in sources}
+    for generator, targets in zip(generators, pending):
+        changed[generator["repository"]] += targets
+    changed = {name: sorted(paths) for name, paths in changed.items()}
     for name in sources:
         print(f"{name}: " + (", ".join(changed[name]) or "current"))
     if not any(changed.values()):
@@ -377,12 +355,11 @@ def publish(declaration, template, *, write_only=False):
     if write_only:
         return 0
     title, body = pull_request_text(sources, declaration_commit, changed)
-    if not resuming:
-        git("switch", "--quiet", "-c", branch, cwd=template)
-        git("add", "--", *[path for paths in changed.values() for path in paths], cwd=template)
-        git("commit", "--quiet", "-S", "-m", title, "-m",
-            "\n".join(f"{name} {tag} {commit}" for name, (tag, commit) in sources.items()), cwd=template)
-    finish(template, repository, base, branch, title, body)
+    git("switch", "--quiet", "-c", branch, cwd=template)
+    git("add", "--", *[path for paths in changed.values() for path in paths], cwd=template)
+    git("commit", "--quiet", "-S", "-m", title, "-m",
+        "\n".join(f"{name} {tag} {commit}" for name, (tag, commit) in sources.items()), cwd=template)
+    pull_request(template, repository, base, branch, title, body)
     return 0
 
 

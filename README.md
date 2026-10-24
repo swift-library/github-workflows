@@ -208,14 +208,14 @@ release, commit and changed files, and leaves the template checkout on that
 branch. When the template allows auto-merge, it requests a squash merge of the
 pushed head. `--write-only` writes the files without a commit or pull request.
 
-A run that fails after committing asks for the same command again. The rerun
-resumes the publication from the branch, in the template checkout or on origin,
-when the branch builds on origin's current default branch head and holds the
-current releases' output. It pushes the branch if needed, opens the pull request
-if none is open and requests auto-merge if it is allowed and not yet requested.
-Otherwise the template checkout must be at origin's default branch head. Runs
-need `git`, `gh` authenticated to push to the template and open pull requests,
-signing configured in the template checkout, and each generator's own tools.
+A publishing run stops before writing anything if the publication branch
+already exists, locally or on origin; otherwise the template checkout must be at
+origin's default branch head. When a push or pull request fails after the commit, the
+script prints `git -C` commands that delete the publication branch, after which
+the same command publishes again; a failed auto-merge request leaves the open
+pull request to merge after the required checks pass. Runs need `git`, `gh`
+authenticated to push to the template and open pull requests, signing configured
+in the template checkout, and each generator's own tools.
 
 No workflow calls the script: opening a pull request in another repository
 needs an App credential, so a maintainer runs it with their own credentials
