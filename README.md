@@ -192,23 +192,30 @@ pre-releases; every generator from one repository runs from that one release.
 Each command runs from the release checkout's root, with `{template}`, `{output}`
 and `{declaration}` replaced by the template checkout, an empty output directory
 and the declaration checkout. The generated files must be exactly the declared
-`files` values. The script writes only declared template paths, and writes
-nothing unless every generator succeeds.
+`files` values. Declared paths must be distinct and must not contain one another,
+ignoring letter case, and must not name Git metadata. The script writes only
+declared template paths, and writes nothing unless every generator succeeds and
+every destination is absent or a regular file whose parents are directories,
+with no symbolic link on the way.
 
-Both checkouts must be clean. The template's origin must name the declared
-template on GitHub, and must push where it fetches. Unless `--write-only` is
-given, both checkouts must also be at their origin's default branch head. When
-files change, the script commits them with a signature on
-`chore/publish-<digest>`, where the digest covers the declaration and producer
-commits. It pushes that branch, opens one pull request that lists each
-producer's release, commit and changed files, and leaves the template checkout
-on that branch. When the template allows auto-merge, it requests a squash merge
-of the pushed head. If the branch already exists, locally or on origin, the run
-stops before writing anything. A failed push, pull request or auto-merge request
-reports the command that completes it. `--write-only` writes the files without a
-commit or pull request. Runs need `git`, `gh` authenticated to push to the
-template and open pull requests, signing configured in the template checkout,
-and each generator's own tools.
+Both checkouts must be clean. Every URL the template's origin fetches from or
+pushes to, after Git's URL rewriting, must name the declared template on GitHub.
+Unless `--write-only` is given, the declaration checkout must be at its origin's
+default branch head. When files change, the script commits them with a signature
+on `chore/publish-<digest>`, where the digest covers the declaration and producer
+commits. It pushes that branch, opens one pull request that lists each producer's
+release, commit and changed files, and leaves the template checkout on that
+branch. When the template allows auto-merge, it requests a squash merge of the
+pushed head. `--write-only` writes the files without a commit or pull request.
+
+A run that fails after committing asks for the same command again. The rerun
+resumes the publication from the branch, in the template checkout or on origin,
+when the branch builds on origin's current default branch head and holds the
+current releases' output. It pushes the branch if needed, opens the pull request
+if none is open and requests auto-merge if it is allowed and not yet requested.
+Otherwise the template checkout must be at origin's default branch head. Runs
+need `git`, `gh` authenticated to push to the template and open pull requests,
+signing configured in the template checkout, and each generator's own tools.
 
 No workflow calls the script: opening a pull request in another repository
 needs an App credential, so a maintainer runs it with their own credentials

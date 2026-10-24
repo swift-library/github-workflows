@@ -3,7 +3,6 @@ import importlib.util
 import json
 import os
 from pathlib import Path
-import shutil
 import subprocess
 import sys
 import tempfile
@@ -42,19 +41,44 @@ if mode in ("mark", "extra"):
     (output / "logo/mark.txt").write_text(f"mark {version} from {design}\\n")
 """
 
+# Serves git@github.com:<owner>/<name>.git from the local bare repositories.
+SSH = """\
+import os
+import shlex
+import subprocess
+import sys
+
+program, path = shlex.split(sys.argv[-1])
+service = program.removeprefix("git-")
+sys.exit(subprocess.call(["git", service, os.path.join(os.environ["FAKE_GITHUB"], path)]))
+"""
+
 GH = """\
 import json
 import os
 import sys
+from pathlib import Path
 
+arguments = sys.argv[1:]
 with open(os.environ["GH_LOG"], "a") as log:
-    log.write(json.dumps(sys.argv[1:]) + "\\n")
-if sys.argv[1] == "pr" and os.environ.get("GH_FAIL") == sys.argv[2]:
+    log.write(json.dumps(arguments) + "\\n")
+state_path = Path(os.environ["GH_STATE"])
+state = json.loads(state_path.read_text()) if state_path.exists() else {"pulls": {}, "auto": []}
+if arguments[0] == "pr" and os.environ.get("GH_FAIL") == arguments[1]:
     sys.exit("gh: request failed")
-if sys.argv[1:3] == ["pr", "create"]:
-    print("https://github.com/example/template/pull/1")
-elif sys.argv[1] == "api":
+if arguments[:2] == ["pr", "list"]:
+    print(state["pulls"].get(arguments[arguments.index("--head") + 1], ""))
+elif arguments[:2] == ["pr", "create"]:
+    url = f"https://github.com/example/template/pull/{len(state['pulls']) + 1}"
+    state["pulls"][arguments[arguments.index("--head") + 1]] = url
+    print(url)
+elif arguments[:2] == ["pr", "view"]:
+    print("true" if arguments[2] in state["auto"] else "false")
+elif arguments[:2] == ["pr", "merge"]:
+    state["auto"].append(arguments[2])
+elif arguments[0] == "api":
     print(os.environ.get("AUTO_MERGE", "false"))
+state_path.write_text(json.dumps(state))
 """
 
 
@@ -83,16 +107,19 @@ class PublishTemplateTests(unittest.TestCase):
         config.write_text(
             "[user]\n\tname = Example\n\temail = example@example.com\n"
             f"\tsigningkey = {key}\n[gpg]\n\tformat = ssh\n[init]\n\tdefaultBranch = master\n"
-            f'[url "file://{self.remotes}/"]\n\tinsteadOf = https://github.com/\n'
+            '[url "git@github.com:"]\n\tinsteadOf = https://github.com/\n'
         )
         bin_directory = self.root / "bin"
         bin_directory.mkdir()
-        stub = bin_directory / "gh"
-        stub.write_text(f"#!{sys.executable}\n{GH}")
-        stub.chmod(0o755)
+        for name, source in (("gh", GH), ("ssh", SSH)):
+            stub = bin_directory / name
+            stub.write_text(f"#!{sys.executable}\n{source}")
+            stub.chmod(0o755)
         self.env = {
             **os.environ, "HOME": str(self.root), "GIT_CONFIG_GLOBAL": str(config),
-            "GIT_CONFIG_NOSYSTEM": "1", "GH_LOG": str(self.gh_log),
+            "GIT_CONFIG_NOSYSTEM": "1", "GIT_SSH_COMMAND": str(bin_directory / "ssh"),
+            "GIT_SSH_VARIANT": "ssh", "FAKE_GITHUB": str(self.remotes),
+            "GH_LOG": str(self.gh_log), "GH_STATE": str(self.root / "gh-state.json"),
             "PATH": f"{bin_directory}{os.pathsep}{os.environ['PATH']}",
         }
         self.producer = self.repository("example/generators", {"generate.py": GENERATOR, "VERSION": "0.1.0\n"})
@@ -151,18 +178,27 @@ class PublishTemplateTests(unittest.TestCase):
             self.declaration = self.repository("example/.github", files)
 
     def publish(self, *arguments, expected=0, env=None):
+        elsewhere = self.root / "elsewhere"
+        elsewhere.mkdir(exist_ok=True)
         result = subprocess.run(
             [sys.executable, "-B", str(SCRIPT), "--declaration", str(self.declaration),
              "--template", str(self.template), *arguments],
-            env={**self.env, **(env or {})}, capture_output=True, text=True,
+            cwd=elsewhere, env={**self.env, **(env or {})}, capture_output=True, text=True,
         )
         self.assertEqual(result.returncode, expected, result.stdout + result.stderr)
         return result
 
-    def gh_calls(self):
+    def gh_calls(self, command=None):
         if not self.gh_log.exists():
             return []
-        return [json.loads(line) for line in self.gh_log.read_text().splitlines()]
+        calls = [json.loads(line) for line in self.gh_log.read_text().splitlines()]
+        return [call for call in calls if command is None or call[:2] == command]
+
+    def published_branch(self):
+        bare = self.remotes / "example/template.git"
+        branches = self.git("for-each-ref", "--format=%(refname:short)", "refs/heads/chore", cwd=bare).split()
+        self.assertEqual(len(branches), 1, branches)
+        return branches[0], bare
 
     def test_latest_release_is_the_highest_stable_version(self):
         with mock.patch.dict(os.environ, self.env, clear=True):
@@ -180,7 +216,7 @@ class PublishTemplateTests(unittest.TestCase):
         self.assertEqual((self.template / "Keep.md").read_text(), "kept\n")
         self.assertEqual((self.template / "Package.swift").read_text(), "// example-template\n")
         self.assertEqual(result.stdout.count("example/generators v0.10.0"), 1)
-        self.assertIn("Assets/Mark.txt, Docs/Guide.md", result.stdout)
+        self.assertIn("example/generators: Assets/Mark.txt, Docs/Guide.md", result.stdout)
         self.assertEqual(self.git("rev-parse", "HEAD", cwd=self.template), head)
         self.assertEqual(self.gh_calls(), [])
 
@@ -195,19 +231,17 @@ class PublishTemplateTests(unittest.TestCase):
 
     def test_publish_opens_one_signed_pull_request(self):
         result = self.publish()
-        calls = self.gh_calls()
-        self.assertEqual(len(calls), 2, calls)
-        create, api = calls
-        branch = create[7]
+        branch, bare = self.published_branch()
+        self.assertRegex(branch, r"^chore/publish-[0-9a-f]{12}$")
+        create, = self.gh_calls(["pr", "create"])
         self.assertEqual(create, [
             "pr", "create", "-R", "example/template", "--base", "master", "--head", branch,
             "--title", "chore: publish example/generators v0.10.0", "--body", create[11],
         ])
-        self.assertRegex(branch, r"^chore/publish-[0-9a-f]{12}$")
         self.assertIn("| example/generators | v0.10.0 |", create[11])
-        self.assertEqual(api, ["api", "repos/example/template", "--jq", ".allow_auto_merge"])
+        self.assertIn("`Assets/Mark.txt`, `Docs/Guide.md`", create[11])
+        self.assertEqual(self.gh_calls(["pr", "merge"]), [])
         self.assertIn("auto-merge is disabled for example/template", result.stdout)
-        bare = self.remotes / "example/template.git"
         published = self.git("rev-parse", f"refs/heads/{branch}", cwd=bare).strip()
         self.assertIn("gpgsig", self.git("cat-file", "commit", published, cwd=bare))
         changed = self.git("diff", "--name-only", "master", published, cwd=bare).split()
@@ -215,12 +249,67 @@ class PublishTemplateTests(unittest.TestCase):
 
     def test_publish_requests_auto_merge_when_the_template_allows_it(self):
         self.publish(env={"AUTO_MERGE": "true"})
-        merge = self.gh_calls()[2]
+        merge, = self.gh_calls(["pr", "merge"])
         head = self.git("rev-parse", "HEAD", cwd=self.template).strip()
         self.assertEqual(merge, [
             "pr", "merge", "https://github.com/example/template/pull/1", "--auto", "--squash",
             "--body", "", "--match-head-commit", head,
         ])
+
+    def test_rerun_after_a_failed_push_completes_the_publication(self):
+        hook = self.remotes / "example/template.git/hooks/pre-receive"
+        hook.write_text("#!/bin/sh\nexit 1\n")
+        hook.chmod(0o755)
+        result = self.publish(expected=1)
+        self.assertIn("Run the same command again to resume the publication.", result.stderr)
+        self.assertEqual(self.gh_calls(["pr", "create"]), [])
+        hook.unlink()
+        result = self.publish()
+        self.assertIn("resuming chore/publish-", result.stdout)
+        branch, _ = self.published_branch()
+        create, = self.gh_calls(["pr", "create"])
+        self.assertIn("`Assets/Mark.txt`, `Docs/Guide.md`", create[11])
+        self.assertEqual(self.git("rev-parse", "--abbrev-ref", "HEAD", cwd=self.template).strip(), branch)
+
+    def test_rerun_after_a_failed_pull_request_completes_the_publication(self):
+        self.publish(expected=1, env={"GH_FAIL": "create"})
+        self.published_branch()
+        result = self.publish()
+        self.assertIn("resuming chore/publish-", result.stdout)
+        self.assertIn("https://github.com/example/template/pull/1", result.stdout)
+        self.assertEqual(len(self.gh_calls(["pr", "create"])), 2)
+
+    def test_rerun_after_a_failed_auto_merge_request_completes_the_publication(self):
+        self.publish(expected=1, env={"AUTO_MERGE": "true", "GH_FAIL": "merge"})
+        result = self.publish(env={"AUTO_MERGE": "true"})
+        self.assertIn("auto-merge requested", result.stdout)
+        self.assertEqual(len(self.gh_calls(["pr", "create"])), 1)
+        self.assertEqual(len(self.gh_calls(["pr", "merge"])), 2)
+
+    def test_published_branch_resumes_from_the_default_branch(self):
+        self.publish()
+        branch, _ = self.published_branch()
+        self.git("switch", "-q", "master", cwd=self.template)
+        self.git("branch", "-q", "-D", branch, cwd=self.template)
+        result = self.publish()
+        self.assertIn(f"resuming {branch}", result.stdout)
+        self.assertEqual(len(self.gh_calls(["pr", "create"])), 1)
+
+    def test_branch_on_an_older_default_head_is_not_resumed(self):
+        self.publish(expected=1, env={"GH_FAIL": "create"})
+        other = self.root / "other"
+        self.git("clone", "-q", "https://github.com/example/template.git", str(other), cwd=self.root)
+        self.commit(other, {"Keep.md": "newer\n"})
+        result = self.publish(expected=1)
+        self.assertIn("does not build on origin's master head", result.stderr)
+
+    def test_stale_template_fails_before_publishing(self):
+        other = self.root / "other"
+        self.git("clone", "-q", "https://github.com/example/template.git", str(other), cwd=self.root)
+        self.commit(other, {"Keep.md": "newer\n"})
+        result = self.publish(expected=1)
+        self.assertIn("is neither origin's master head nor branch", result.stderr)
+        self.assertEqual(self.gh_calls(), [])
 
     def test_undeclared_generated_file_fails_before_writing(self):
         self.declare(composition(generator("extra", {"Docs/Guide.md": "Guide.md"})))
@@ -240,30 +329,27 @@ class PublishTemplateTests(unittest.TestCase):
         self.assertIn("uncommitted changes", result.stderr)
         self.assertEqual((self.template / "Docs/Guide.md").read_text(), "old guide\n")
 
-    def test_stale_template_fails_before_publishing(self):
-        other = self.root / "other"
-        self.git("clone", "-q", "https://github.com/example/template.git", str(other), cwd=self.root)
-        self.commit(other, {"Keep.md": "newer\n"})
-        result = self.publish(expected=1)
-        self.assertIn("is not origin's master head", result.stderr)
-        self.assertEqual(self.gh_calls(), [])
-
     def test_template_origin_must_match_the_declaration(self):
         self.declare(composition(GUIDE, template="example/other"))
         result = self.publish("--write-only", expected=1)
         self.assertIn("is not github.com/example/other", result.stderr)
 
-    def test_origin_must_be_the_template_on_github(self):
-        self.git("remote", "set-url", "origin", "https://example.com/example/template.git", cwd=self.template)
+    def test_rewritten_origin_must_stay_on_github(self):
+        self.git("config", "url.https://example.invalid/mirror/example/template.insteadOf",
+                 "https://github.com/example/template", cwd=self.template)
         result = self.publish("--write-only", expected=1)
-        self.assertIn("is not github.com/example/template", result.stderr)
+        self.assertIn("https://example.invalid/mirror/example/template.git, which is not github.com",
+                      result.stderr)
         self.assertEqual((self.template / "Docs/Guide.md").read_text(), "old guide\n")
 
-    def test_origin_must_push_where_it_fetches(self):
-        self.git("remote", "set-url", "--push", "origin", "https://github.com/example/generators.git",
+    def test_every_push_url_must_be_the_template(self):
+        self.git("remote", "set-url", "--add", "--push", "origin", "https://github.com/example/template.git",
+                 cwd=self.template)
+        self.git("remote", "set-url", "--add", "--push", "origin", "https://github.com/example/generators.git",
                  cwd=self.template)
         result = self.publish("--write-only", expected=1)
-        self.assertIn("origin pushes to", result.stderr)
+        self.assertIn("git@github.com:example/generators.git, which is not github.com/example/template",
+                      result.stderr)
         self.assertEqual((self.template / "Docs/Guide.md").read_text(), "old guide\n")
 
     def test_producer_without_release_tag_fails(self):
@@ -278,34 +364,6 @@ class PublishTemplateTests(unittest.TestCase):
         self.assertIn("must be a directory", result.stderr)
         self.assertEqual((self.template / "Docs/Guide.md").read_text(), "old guide\n")
         self.assertEqual((self.template / "Keep.md").read_text(), "kept\n")
-
-    def test_existing_publication_stops_before_writing(self):
-        self.publish()
-        self.git("switch", "-q", "master", cwd=self.template)
-        calls = len(self.gh_calls())
-        result = self.publish(expected=1)
-        self.assertIn("already exists on origin", result.stderr)
-        self.assertIn("gh pr list -R example/template --head chore/publish-", result.stderr)
-        self.assertEqual((self.template / "Docs/Guide.md").read_text(), "old guide\n")
-        self.assertEqual(len(self.gh_calls()), calls)
-
-    def test_failed_push_names_the_recovery(self):
-        hook = self.remotes / "example/template.git/hooks/pre-receive"
-        hook.write_text("#!/bin/sh\nexit 1\n")
-        hook.chmod(0o755)
-        result = self.publish(expected=1)
-        self.assertRegex(result.stderr, r"Push it with `git push origin chore/publish-[0-9a-f]{12}`")
-        self.assertIn("gh pr create -R example/template --base master", result.stderr)
-        self.assertEqual(self.gh_calls(), [])
-
-    def test_failed_pull_request_names_the_recovery(self):
-        result = self.publish(expected=1, env={"GH_FAIL": "create"})
-        self.assertIn("is on origin. Open the pull request with `gh pr create -R example/template", result.stderr)
-
-    def test_failed_auto_merge_names_the_recovery(self):
-        result = self.publish(expected=1, env={"AUTO_MERGE": "true", "GH_FAIL": "merge"})
-        self.assertIn("https://github.com/example/template/pull/1 is open. Request auto-merge with "
-                      "`gh pr merge https://github.com/example/template/pull/1 --auto", result.stderr)
 
     def test_symlinked_destination_fails_before_writing(self):
         (self.template / "Docs/Guide.md").unlink()
@@ -324,8 +382,11 @@ class PublishTemplateTests(unittest.TestCase):
             "git path": composition({**GUIDE, "files": {".git/config": "Guide.md"}}),
             "git path in another case": composition({**GUIDE, "files": {".GIT/config": "Guide.md"}}),
             "generated git path": composition({**GUIDE, "files": {"Guide.md": "Docs/.Git/x"}}),
-            "nested targets": composition(GUIDE, {**MARK, "files": {"Docs": "logo/mark.txt"}}),
             "duplicate target": composition(GUIDE, {**MARK, "files": {"Docs/Guide.md": "logo/mark.txt"}}),
+            "duplicate target in another case": composition(
+                GUIDE, {**MARK, "files": {"docs/guide.md": "logo/mark.txt"}}),
+            "nested targets": composition(GUIDE, {**MARK, "files": {"Docs": "logo/mark.txt"}}),
+            "nested targets in another case": composition(GUIDE, {**MARK, "files": {"docs": "logo/mark.txt"}}),
             "missing key": {"schema": 1, "template": "example/template"},
             "extra key": composition({**GUIDE, "path": "x"}),
             "bad repository": composition({**GUIDE, "repository": "generators"}),
