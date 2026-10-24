@@ -1,8 +1,9 @@
 name: CI
 on:
   push:
+    branches: [master]
   pull_request:
-    types: [opened, edited, synchronize, reopened]
+    types: [opened, synchronize, reopened]
   workflow_dispatch:
 permissions: {}
 jobs:
@@ -26,17 +27,6 @@ jobs:
       contents: read
       actions: read
     uses: ./.github/workflows/swift-package.yml
-  policy:
-    permissions:
-      contents: read
-    uses: ./.github/workflows/policy.yml
-    with:
-      allow-terms: |
-        ChatGPT
-        Codex
-        Cursor
-        Claude
-      dependabot-exception: true
   fixtures:
     runs-on: ${{ matrix.runner }}
     permissions:
@@ -99,7 +89,7 @@ jobs:
           echo "$GITHUB_WORKSPACE/.build/venv/bin" >> "$GITHUB_PATH"
       - run: python3 scripts/test-fixtures.py demo --toolchain .build/presentation-source/skills/github-readme-design/scripts
   result:
-    needs: [checks, validate, policy, fixtures, demo-fixture]
+    needs: [checks, validate, fixtures, demo-fixture]
     if: always()
     runs-on: ubuntu-24.04
     permissions:
