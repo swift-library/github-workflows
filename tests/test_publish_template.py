@@ -49,6 +49,8 @@ import sys
 
 with open(os.environ["GH_LOG"], "a") as log:
     log.write(json.dumps(sys.argv[1:]) + "\\n")
+if sys.argv[1] == "pr" and os.environ.get("GH_FAIL") == sys.argv[2]:
+    sys.exit("gh: request failed")
 if sys.argv[1:3] == ["pr", "create"]:
     print("https://github.com/example/template/pull/1")
 elif sys.argv[1] == "api":
@@ -249,13 +251,61 @@ class PublishTemplateTests(unittest.TestCase):
     def test_template_origin_must_match_the_declaration(self):
         self.declare(composition(GUIDE, template="example/other"))
         result = self.publish("--write-only", expected=1)
-        self.assertIn("is not example/other", result.stderr)
+        self.assertIn("is not github.com/example/other", result.stderr)
+
+    def test_origin_must_be_the_template_on_github(self):
+        self.git("remote", "set-url", "origin", "https://example.com/example/template.git", cwd=self.template)
+        result = self.publish("--write-only", expected=1)
+        self.assertIn("is not github.com/example/template", result.stderr)
+        self.assertEqual((self.template / "Docs/Guide.md").read_text(), "old guide\n")
+
+    def test_origin_must_push_where_it_fetches(self):
+        self.git("remote", "set-url", "--push", "origin", "https://github.com/example/generators.git",
+                 cwd=self.template)
+        result = self.publish("--write-only", expected=1)
+        self.assertIn("origin pushes to", result.stderr)
+        self.assertEqual((self.template / "Docs/Guide.md").read_text(), "old guide\n")
 
     def test_producer_without_release_tag_fails(self):
         self.repository("example/untagged", {"generate.py": GENERATOR, "VERSION": "0\n"})
         self.declare(composition(generator("guide", {"Docs/Guide.md": "Guide.md"}, "example/untagged")))
         result = self.publish("--write-only", expected=1)
         self.assertIn("no vMAJOR.MINOR.PATCH release tag", result.stderr)
+
+    def test_file_ancestor_fails_before_writing(self):
+        self.declare(composition(GUIDE, {**MARK, "files": {"Keep.md/Mark.txt": "logo/mark.txt"}}))
+        result = self.publish("--write-only", expected=1)
+        self.assertIn("must be a directory", result.stderr)
+        self.assertEqual((self.template / "Docs/Guide.md").read_text(), "old guide\n")
+        self.assertEqual((self.template / "Keep.md").read_text(), "kept\n")
+
+    def test_existing_publication_stops_before_writing(self):
+        self.publish()
+        self.git("switch", "-q", "master", cwd=self.template)
+        calls = len(self.gh_calls())
+        result = self.publish(expected=1)
+        self.assertIn("already exists on origin", result.stderr)
+        self.assertIn("gh pr list -R example/template --head chore/publish-", result.stderr)
+        self.assertEqual((self.template / "Docs/Guide.md").read_text(), "old guide\n")
+        self.assertEqual(len(self.gh_calls()), calls)
+
+    def test_failed_push_names_the_recovery(self):
+        hook = self.remotes / "example/template.git/hooks/pre-receive"
+        hook.write_text("#!/bin/sh\nexit 1\n")
+        hook.chmod(0o755)
+        result = self.publish(expected=1)
+        self.assertRegex(result.stderr, r"Push it with `git push origin chore/publish-[0-9a-f]{12}`")
+        self.assertIn("gh pr create -R example/template --base master", result.stderr)
+        self.assertEqual(self.gh_calls(), [])
+
+    def test_failed_pull_request_names_the_recovery(self):
+        result = self.publish(expected=1, env={"GH_FAIL": "create"})
+        self.assertIn("is on origin. Open the pull request with `gh pr create -R example/template", result.stderr)
+
+    def test_failed_auto_merge_names_the_recovery(self):
+        result = self.publish(expected=1, env={"AUTO_MERGE": "true", "GH_FAIL": "merge"})
+        self.assertIn("https://github.com/example/template/pull/1 is open. Request auto-merge with "
+                      "`gh pr merge https://github.com/example/template/pull/1 --auto", result.stderr)
 
     def test_symlinked_destination_fails_before_writing(self):
         (self.template / "Docs/Guide.md").unlink()
@@ -272,6 +322,9 @@ class PublishTemplateTests(unittest.TestCase):
             "parent path": composition({**GUIDE, "files": {"../Guide.md": "Guide.md"}}),
             "unnormalized path": composition({**GUIDE, "files": {"./Guide.md": "Guide.md"}}),
             "git path": composition({**GUIDE, "files": {".git/config": "Guide.md"}}),
+            "git path in another case": composition({**GUIDE, "files": {".GIT/config": "Guide.md"}}),
+            "generated git path": composition({**GUIDE, "files": {"Guide.md": "Docs/.Git/x"}}),
+            "nested targets": composition(GUIDE, {**MARK, "files": {"Docs": "logo/mark.txt"}}),
             "duplicate target": composition(GUIDE, {**MARK, "files": {"Docs/Guide.md": "logo/mark.txt"}}),
             "missing key": {"schema": 1, "template": "example/template"},
             "extra key": composition({**GUIDE, "path": "x"}),

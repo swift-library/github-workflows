@@ -195,15 +195,20 @@ and the declaration checkout. The generated files must be exactly the declared
 `files` values. The script writes only declared template paths, and writes
 nothing unless every generator succeeds.
 
-Both checkouts must be clean, and the template's origin must be the declared
-template. Unless `--write-only` is given, both must also be at their origin's
-default branch head. When files change, the script commits them with a signature
-on `chore/publish-<digest>`, pushes that branch and opens one pull request that
-lists each producer's release, commit and changed files. When the template
-allows auto-merge, it requests a squash merge of the pushed head. `--write-only`
-writes the files without a commit or pull request. Runs need `git`, `gh`
-authenticated to push to the template and open pull requests, signing
-configured in the template checkout, and each generator's own tools.
+Both checkouts must be clean. The template's origin must name the declared
+template on GitHub, and must push where it fetches. Unless `--write-only` is
+given, both checkouts must also be at their origin's default branch head. When
+files change, the script commits them with a signature on
+`chore/publish-<digest>`, where the digest covers the declaration and producer
+commits. It pushes that branch, opens one pull request that lists each
+producer's release, commit and changed files, and leaves the template checkout
+on that branch. When the template allows auto-merge, it requests a squash merge
+of the pushed head. If the branch already exists, locally or on origin, the run
+stops before writing anything. A failed push, pull request or auto-merge request
+reports the command that completes it. `--write-only` writes the files without a
+commit or pull request. Runs need `git`, `gh` authenticated to push to the
+template and open pull requests, signing configured in the template checkout,
+and each generator's own tools.
 
 No workflow calls the script: opening a pull request in another repository
 needs an App credential, so a maintainer runs it with their own credentials

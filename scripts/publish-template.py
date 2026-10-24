@@ -17,6 +17,10 @@ REPOSITORY = re.compile(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+")
 RELEASE = re.compile(r"v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)")
 PLACEHOLDER = re.compile(r"\{([a-z]+)\}")
 PLACEHOLDERS = frozenset({"template", "output", "declaration"})
+GITHUB_URL = re.compile(
+    r"(?:https://github\.com/|ssh://git@github\.com/|git@github\.com:)"
+    r"(?P<repository>[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+?)(?:\.git)?/?"
+)
 
 
 class PublishError(Exception):
@@ -36,7 +40,9 @@ def relative_path(value, label):
     if not isinstance(value, str) or not value:
         raise PublishError(f"{label}: expected a relative path")
     path = Path(value)
-    if path.is_absolute() or ".." in path.parts or ".git" in path.parts or path.as_posix() != value:
+    # Case-insensitive file systems resolve .GIT to the repository metadata too.
+    if (path.is_absolute() or ".." in path.parts or path.as_posix() != value
+            or any(part.casefold() == ".git" for part in path.parts)):
         raise PublishError(f"{label}: {value!r} must be a normalized path inside the repository")
     return path
 
@@ -71,6 +77,10 @@ def validate_composition(value):
             if target in targets:
                 raise PublishError(f"{label}.files: {target!r} is declared by more than one generator")
             targets.add(target)
+    for target in targets:
+        for parent in Path(target).parents:
+            if parent.as_posix() in targets:
+                raise PublishError(f"template composition: {target!r} is inside the declared file {parent.as_posix()!r}")
 
 
 def load_composition(root):
@@ -158,6 +168,9 @@ def check_destinations(template, targets):
         for relative in (Path(target), *Path(target).parents):
             if (template / relative).is_symlink():
                 raise PublishError(f"{destination}: path crosses a symbolic link")
+        for parent in Path(target).parents:
+            if (template / parent).exists() and not (template / parent).is_dir():
+                raise PublishError(f"{destination}: {template / parent} must be a directory")
         if not destination.resolve().is_relative_to(root):
             raise PublishError(f"{destination}: must stay inside {template}")
         if destination.exists() and not destination.is_file():
@@ -206,16 +219,51 @@ def require_current(checkout):
 
 
 def require_origin(checkout, repository):
-    url = git("remote", "get-url", "origin", cwd=checkout).strip().rstrip("/").removesuffix(".git")
-    if not (url.endswith("/" + repository) or url.endswith(":" + repository)):
-        raise PublishError(f"{checkout}: origin {url} is not {repository}")
+    """Require origin to be the template on GitHub, and pushes to go where fetches do."""
+    result = subprocess.run(
+        ["git", "config", "--get-all", "remote.origin.url"], cwd=checkout,
+        capture_output=True, text=True, stdin=subprocess.DEVNULL,
+    )
+    urls = result.stdout.splitlines()
+    if result.returncode or not urls:
+        raise PublishError(f"{checkout}: has no origin remote")
+    for url in urls:
+        match = GITHUB_URL.fullmatch(url)
+        if match is None or match["repository"].lower() != repository.lower():
+            raise PublishError(f"{checkout}: origin {url} is not github.com/{repository}")
+    fetch = git("remote", "get-url", "--all", "origin", cwd=checkout).splitlines()
+    push = git("remote", "get-url", "--push", "--all", "origin", cwd=checkout).splitlines()
+    if push != fetch:
+        raise PublishError(f"{checkout}: origin pushes to {', '.join(push)}, not to {', '.join(fetch)}")
 
 
 def gh(*arguments):
     return run(["gh", *arguments])
 
 
-def pull_request(template, repository, base, sources, declaration_commit, changed):
+def publication_branch(declaration_commit, sources):
+    digest = hashlib.sha256(
+        "\n".join([declaration_commit, *(f"{name} {commit}" for name, (_, commit) in sorted(sources.items()))]).encode()
+    ).hexdigest()
+    return "chore/publish-" + digest[:12]
+
+
+def require_unpublished(template, repository, branch):
+    local = subprocess.run(
+        ["git", "rev-parse", "--verify", "--quiet", f"refs/heads/{branch}"], cwd=template,
+        capture_output=True, stdin=subprocess.DEVNULL,
+    ).returncode == 0
+    remote = bool(git("ls-remote", "--heads", "origin", f"refs/heads/{branch}", cwd=template).strip())
+    if local or remote:
+        place = "on origin" if remote else "in the template checkout"
+        raise PublishError(
+            f"branch {branch} already exists {place}: these releases were published before. "
+            f"Find its pull request with `gh pr list -R {repository} --head {branch} --state all`, "
+            "or delete the branch to publish them again"
+        )
+
+
+def pull_request(template, repository, base, branch, sources, declaration_commit, changed):
     titles = [f"{name} {sources[name][0]}" for name in sources if changed[name]]
     title = "chore: publish " + ", ".join(titles)
     rows = "\n".join(
@@ -230,25 +278,37 @@ def pull_request(template, repository, base, sources, declaration_commit, change
         f"{rows}\n\n"
         "Generated paths are changed in their producer and arrive through its next release.\n"
     )
-    digest = hashlib.sha256(
-        "\n".join([declaration_commit, *(f"{name} {commit}" for name, (_, commit) in sorted(sources.items()))]).encode()
-    ).hexdigest()
-    branch = "chore/publish-" + digest[:12]
     paths = [path for name in sources for path in changed[name]]
+    create = f"gh pr create -R {repository} --base {base} --head {branch} --fill"
     git("switch", "--quiet", "-c", branch, cwd=template)
     git("add", "--", *paths, cwd=template)
     git("commit", "--quiet", "-S", "-m", title, "-m",
         "\n".join(f"{name} {tag} {commit}" for name, (tag, commit) in sources.items()), cwd=template)
     head = git("rev-parse", "HEAD", cwd=template).strip()
-    git("push", "--quiet", "origin", f"HEAD:refs/heads/{branch}", cwd=template)
-    url = gh("pr", "create", "-R", repository, "--base", base, "--head", branch,
-             "--title", title, "--body", body).strip()
+    try:
+        git("push", "--quiet", "origin", f"HEAD:refs/heads/{branch}", cwd=template)
+    except PublishError as error:
+        raise PublishError(
+            f"{error}\nThe commit is on local branch {branch}. Push it with "
+            f"`git push origin {branch}`, then open the pull request with `{create}`"
+        ) from error
+    try:
+        url = gh("pr", "create", "-R", repository, "--base", base, "--head", branch,
+                 "--title", title, "--body", body).strip()
+    except PublishError as error:
+        raise PublishError(f"{error}\nBranch {branch} is on origin. Open the pull request with `{create}`") from error
     print(url)
-    if gh("api", f"repos/{repository}", "--jq", ".allow_auto_merge").strip() == "true":
-        gh("pr", "merge", url, "--auto", "--squash", "--body", "", "--match-head-commit", head)
-        print("auto-merge requested")
-    else:
+    if gh("api", f"repos/{repository}", "--jq", ".allow_auto_merge").strip() != "true":
         print(f"auto-merge is disabled for {repository}; merge after the required checks pass")
+        return
+    try:
+        gh("pr", "merge", url, "--auto", "--squash", "--body", "", "--match-head-commit", head)
+    except PublishError as error:
+        raise PublishError(
+            f"{error}\n{url} is open. Request auto-merge with `gh pr merge {url} --auto --squash "
+            f"--body '' --match-head-commit {head}`, or merge it after the required checks pass"
+        ) from error
+    print("auto-merge requested")
 
 
 def publish(declaration, template, *, write_only=False):
@@ -281,6 +341,9 @@ def publish(declaration, template, *, write_only=False):
                 "template": template.resolve(), "output": output, "declaration": declaration.resolve(),
             }, output)
             outputs.append(output)
+        if not write_only:
+            branch = publication_branch(declaration_commit, sources)
+            require_unpublished(template, repository, branch)
         changed = {name: [] for name in sources}
         for generator, output in zip(generators, outputs):
             changed[generator["repository"]] += apply(template, generator["files"], output)
@@ -291,7 +354,7 @@ def publish(declaration, template, *, write_only=False):
         print(f"{repository} is current")
         return 0
     if not write_only:
-        pull_request(template, repository, base, sources, declaration_commit, changed)
+        pull_request(template, repository, base, branch, sources, declaration_commit, changed)
     return 0
 
 
@@ -309,7 +372,7 @@ def main(argv=None):
     args = parser.parse_args(argv)
     try:
         return publish(args.declaration, args.template, write_only=args.write_only)
-    except PublishError as error:
+    except (PublishError, OSError) as error:
         print(f"publish-template: {error}", file=sys.stderr)
         return 1
 
