@@ -1,7 +1,7 @@
 # Shared GitHub workflows
 
 Reusable validation, source policy, release publication and organization checks
-for Swift packages. Required member checks are exactly **`policy / policy`** and
+for Swift packages, and publication of a package template. Required member checks are exactly **`policy / policy`** and
 **`validate / result`**.
 
 ## Job catalog
@@ -175,6 +175,52 @@ read access to the selected repositories. The caller's ordinary `GITHUB_TOKEN`
 is sufficient for public observations, but cannot read all administrative
 settings across an organization. The optional secret is used only by the check.
 
+## Package template publication
+
+`scripts/publish-template.py` publishes a template repository's generated files
+from their producers' releases. The declaration repository's `MAINTENANCE.md`
+declares them in one `template-composition` JSON block: `schema` 1, the
+`template` repository as `owner/name`, and `generators`, each with a producer
+`repository`, a `command` and a `files` map from template path to generated path.
+
+```sh
+python3 scripts/publish-template.py --declaration <declaration-checkout> --template <template-checkout>
+```
+
+For each producer the script clones the highest `vMAJOR.MINOR.PATCH` tag, ignoring
+pre-releases; every generator from one repository runs from that one release.
+Each command runs from the release checkout's root, with `{template}`, `{output}`
+and `{declaration}` replaced by the template checkout, an empty output directory
+and the declaration checkout. The generated files must be exactly the declared
+`files` values. Declared paths must be distinct and must not contain one another,
+ignoring letter case, and must not name Git metadata. The script writes only
+declared template paths, and writes nothing unless every generator succeeds and
+every destination is absent or a regular file whose parents are directories,
+with no symbolic link on the way.
+
+Both checkouts must be clean. Every URL the template's origin fetches from or
+pushes to, after Git's URL rewriting, must name the declared template on GitHub.
+Unless `--write-only` is given, the declaration checkout must be at its origin's
+default branch head. When files change, the script commits them with a signature
+on `chore/publish-<digest>`, where the digest covers the declaration and producer
+commits. It pushes that branch, opens one pull request that lists each producer's
+release, commit and changed files, and leaves the template checkout on that
+branch. When the template allows auto-merge, it requests a squash merge of the
+pushed head. `--write-only` writes the files without a commit or pull request.
+
+A publishing run stops before writing anything if the publication branch
+already exists, locally or on origin; otherwise the template checkout must be at
+origin's default branch head. When a push or pull request fails after the commit, the
+script prints `git -C` commands that delete the publication branch, after which
+the same command publishes again; a failed auto-merge request leaves the open
+pull request to merge after the required checks pass. Runs need `git`, `gh`
+authenticated to push to the template and open pull requests, signing configured
+in the template checkout, and each generator's own tools.
+
+No workflow calls the script: opening a pull request in another repository
+needs an App credential, so a maintainer runs it with their own credentials
+after each producer release.
+
 ## Pins and implementation revision
 
 Pin reusable workflows by full commit SHA; add a version comment at the family
@@ -231,8 +277,8 @@ python3 scripts/test-fixtures.py demo --toolchain .build/presentation-toolchain
 
 macOS runs require Xcode/Swift; Linux fixture runs require Docker. The unit
 suite validates every package fixture against the schema, exercises compiler
-matrices, version/tag trust, policy, organization API responses and aggregate
-failure behavior. The command harness requires passing fixtures to succeed and
+matrices, version/tag trust, policy, organization API responses, aggregate
+failure behavior and template publication against local repositories. The command harness requires passing fixtures to succeed and
 negative fixtures to fail for their intended reason. Builds and logs live under
 ignored `.build/`.
 The macOS fixtures include documented library and executable targets with
