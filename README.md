@@ -73,9 +73,10 @@ publishes them.
 
 ## Calling validation and policy
 
-Callers run validation once for each pull-request push and once for each push
-to the default branch. Source policy runs on the same events and also when a
-pull request is edited, because it checks the title:
+Callers run validation once for each pull-request push, once for each push to
+the default branch and on manual dispatch. Source policy runs on pull requests
+and default-branch pushes, and also when a pull request is edited, because it
+checks the title:
 
 ```yaml
 name: CI
@@ -84,6 +85,7 @@ on:
     branches: [master]
   pull_request:
     types: [opened, synchronize, reopened]
+  workflow_dispatch:
 permissions:
   contents: read
   actions: read
