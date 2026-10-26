@@ -387,6 +387,29 @@ class GitRangeTests(unittest.TestCase):
         for reason in ('whitespace', 'conflict marker', 'attribution', 'blank line at end'):
             self.assertTrue(any(reason in finding for finding in findings), reason)
 
+    def test_agents_instruction_files_are_tracked_and_other_agent_files_stay_private(self):
+        (self.root / '.agent/instructions/shared').mkdir(parents=True)
+        (self.root / '.agent/instructions/shared/route.md').write_text('---\ndescription: Route changes.\n---\n## Route\n')
+        (self.root / '.agent/agents.json').write_text('{"instructions": {"agents": ["claude-code", "codex"]}}\n')
+        (self.root / '.agent/agents.resolved').write_text('{"instructions": {"chatgpt": {}}}\n')
+        head = self.commit('docs: declare agent instructions')
+        self.assertEqual(policy.check(self.event(head, 'docs: declare agent instructions'), 'pull_request'), [])
+        (self.root / '.agent/plans').mkdir()
+        (self.root / '.agent/plans/task.md').write_text('plan\n')
+        (self.root / '.agent/cache').mkdir()
+        (self.root / '.agent/cache/state').write_text('state\n')
+        head = self.commit('docs: add private state')
+        findings = policy.check(self.event(head, 'docs: add private state'), 'pull_request')
+        for path in ('.agent/plans/task.md', '.agent/cache/state'):
+            self.assertIn(f'{path}: private execution file', findings)
+
+    def test_instruction_units_still_need_permitted_product_terms(self):
+        (self.root / '.agent/instructions').mkdir(parents=True)
+        (self.root / '.agent/instructions/guide.md').write_text('# Guide\n\nAsk Codex.\n')
+        head = self.commit('docs: add guide')
+        findings = policy.check(self.event(head, 'docs: add guide'), 'pull_request')
+        self.assertTrue(any('unapproved product/tool term: Codex' in finding for finding in findings))
+
     def test_binary_content_is_not_interpreted_as_text(self):
         (self.root / 'image').write_bytes(b'\x00\n<<<<<<< bytes\nGenerated-by: bytes  \n')
         head = self.commit('test: add binary fixture')
