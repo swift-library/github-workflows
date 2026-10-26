@@ -398,9 +398,14 @@ class GitRangeTests(unittest.TestCase):
         (self.root / '.agent/plans/task.md').write_text('plan\n')
         (self.root / '.agent/cache').mkdir()
         (self.root / '.agent/cache/state').write_text('state\n')
+        private = ('.agent/instructions/shared/.agent/cache/state', '.agent/instructions/.workspace/notes.md',
+                   '.agent/instructions/PLANS.md', 'plugin/.agent/agents.json', '.agent/agents.json.bak')
+        for path in private:
+            (self.root / path).parent.mkdir(parents=True, exist_ok=True)
+            (self.root / path).write_text('state\n')
         head = self.commit('docs: add private state')
         findings = policy.check(self.event(head, 'docs: add private state'), 'pull_request')
-        for path in ('.agent/plans/task.md', '.agent/cache/state'):
+        for path in ('.agent/plans/task.md', '.agent/cache/state', *private):
             self.assertIn(f'{path}: private execution file', findings)
 
     def test_instruction_units_still_need_permitted_product_terms(self):

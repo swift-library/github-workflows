@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-- `policy.yml` accepts the agents CLI's tracked instruction files: `.agent/instructions/`, `.agent/agents.json` and `.agent/agents.resolved`. Other `.agent/` paths stay private execution files. The declaration and lock may name agent IDs such as `codex` without an allowed product term.
+- `policy.yml` accepts the agents CLI's tracked instruction files: `.agent/instructions/`, `.agent/agents.json` and `.agent/agents.resolved`. Other `.agent/` paths, including private directories nested under the units, stay private execution files. The declaration and lock may name agent IDs such as `codex` without an allowed product term.
 
 ## 0.1.0
 

@@ -33,8 +33,11 @@ AGENT_INSTRUCTIONS = ".agent/instructions/"
 
 def private_execution_file(file):
     name = file.as_posix()
-    if name in AGENT_STATE_FILES or name.startswith(AGENT_INSTRUCTIONS):
+    if name in AGENT_STATE_FILES:
         return False
+    if name.startswith(AGENT_INSTRUCTIONS):
+        # Private state nested under the units stays private.
+        file = Path(name[len(AGENT_INSTRUCTIONS):])
     return (any(part in {".agent", ".workspace"} for part in file.parts)
             or file.name == "PLANS.md" or file.name.endswith(".plan.md"))
 
