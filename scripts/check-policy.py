@@ -23,7 +23,23 @@ ZERO = "0" * 40
 OWNER_EMAIL = "10173746+showxu@users.noreply.github.com"
 PRIVATE_PATH = re.compile(r"/(?:Users|home)/[^/\s]+/|[.]workspace/")
 PRODUCT = re.compile(r"\b(ChatGPT|Codex|Cursor|Claude)\b", re.I)
+PRODUCT_TERMS = frozenset({"chatgpt", "codex", "cursor", "claude"})
 TOOL_ATTRIBUTION = re.compile(r"Generated" r" with|cursor\.com|anthropic\.com|claude\.ai|openai\.com", re.I)
+# The agents CLI's committed declaration and lock name agent IDs such as codex;
+# instruction units under .agent/instructions/ are tracked repository guidance.
+AGENT_STATE_FILES = {".agent/agents.json", ".agent/agents.resolved"}
+AGENT_INSTRUCTIONS = ".agent/instructions/"
+
+
+def private_execution_file(file):
+    name = file.as_posix()
+    if name in AGENT_STATE_FILES:
+        return False
+    if name.startswith(AGENT_INSTRUCTIONS):
+        # Private state nested under the units stays private.
+        file = Path(name[len(AGENT_INSTRUCTIONS):])
+    return (any(part in {".agent", ".workspace"} for part in file.parts)
+            or file.name == "PLANS.md" or file.name.endswith(".plan.md"))
 
 
 def content_findings(path, number, text, allow_terms):
@@ -227,7 +243,7 @@ def check(event, event_name, *, allow_terms=frozenset(), dependabot_exception=Fa
                 comparison, head, "--").split("\0")
     for path in filter(None, paths):
         file = Path(path)
-        if any(part in {".agent", ".workspace"} for part in file.parts) or file.name == "PLANS.md" or file.name.endswith(".plan.md"):
+        if private_execution_file(file):
             findings.append(f"{path}: private execution file")
         if git("--literal-pathspecs", "ls-tree", head, "--", path).startswith("160000 "):
             continue
@@ -242,7 +258,8 @@ def check(event, event_name, *, allow_terms=frozenset(), dependabot_exception=Fa
             trailing_blank_start -= 1
         patch = git("--literal-pathspecs", "diff", "--text", "--no-ext-diff", "--no-textconv", "--no-color", "--no-renames",
                     "--unified=0", comparison, head, "--", path)
-        findings.extend(added_findings(patch, trailing_blank_start=trailing_blank_start, allow_terms=allow_terms))
+        terms = allow_terms | PRODUCT_TERMS if file.as_posix() in AGENT_STATE_FILES else allow_terms
+        findings.extend(added_findings(patch, trailing_blank_start=trailing_blank_start, allow_terms=terms))
     return findings
 
 
