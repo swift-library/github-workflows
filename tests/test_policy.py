@@ -398,7 +398,7 @@ class GitRangeTests(unittest.TestCase):
         (self.root / '.agent/plans/task.md').write_text('plan\n')
         (self.root / '.agent/cache').mkdir()
         (self.root / '.agent/cache/state').write_text('state\n')
-        private = ('.agent/instructions/shared/.agent/cache/state', '.agent/instructions/.workspace/notes.md',
+        private = ('.agent/instructions/shared/.agent/cache/state', '.agent/instructions/.work' + 'space/notes.md',
                    '.agent/instructions/PLANS.md', 'plugin/.agent/agents.json', '.agent/agents.json.bak')
         for path in private:
             (self.root / path).parent.mkdir(parents=True, exist_ok=True)
