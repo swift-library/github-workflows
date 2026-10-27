@@ -177,15 +177,14 @@ class GitRangeTests(unittest.TestCase):
         self.assertIn('validating 2 commits in ' + self.base + '..' + head, output)
 
     @mock.patch.dict(os.environ, {'GH_TOKEN': 'test-token'})
-    def test_authenticated_dependabot_update_passes_on_pr_push_and_dispatch(self):
+    def test_authenticated_dependabot_update_passes_on_push_and_dispatch(self):
         head = self.dependency_update()
-        events = ((self.event(head), 'pull_request'),
-                  (self.push_event(head, self.base), 'push'),
+        events = ((self.push_event(head, self.base), 'push'),
                   ({'repository': {'full_name': 'owner/member'}, 'ref': 'main'}, 'workflow_dispatch'))
         for event, name in events:
             with self.subTest(event=name), mock.patch.dict(os.environ, {'GITHUB_SHA': head}), mock.patch.object(
                 policy, 'urlopen', return_value=github_response(dependabot_metadata(head))
-            ) as get:
+            ) as get, redirect_stdout(StringIO()):
                 self.assertEqual(policy.check(event, name), [])
                 request = get.call_args.args[0]
                 self.assertEqual(request.full_url, 'https://api.github.com/repos/owner/member/commits/' + head)
@@ -209,8 +208,8 @@ class GitRangeTests(unittest.TestCase):
             with self.subTest(metadata=changed), mock.patch.object(
                 policy, 'urlopen', return_value=github_response({**dependabot_metadata(head), **changed})
             ):
-                self.assertEqual(policy.check(self.event(head), 'pull_request'),
-                                 [head + ': forbidden attribution trailer'])
+                findings, _ = self.check_push(self.push_event(head, self.base))
+                self.assertEqual(findings, [head + ': forbidden attribution trailer'])
 
     def test_commit_message_carriage_return_does_not_match_exact_signoff(self):
         (self.root / 'file').write_text('updated dependency\n')
@@ -219,40 +218,75 @@ class GitRangeTests(unittest.TestCase):
                  'chore(deps): update dependency\n\n' + policy.DEPENDABOT_SIGNOFF + '\r\n')
         head = self.git('rev-parse', 'HEAD')
         with mock.patch.object(policy, 'authenticated_dependabot_commit') as authenticate:
-            self.assertEqual(policy.check(self.event(head), 'pull_request'),
-                             [head + ': forbidden attribution trailer'])
+            findings, _ = self.check_push(self.push_event(head, self.base))
+            self.assertEqual(findings, [head + ': forbidden attribution trailer'])
             authenticate.assert_not_called()
 
     @mock.patch.dict(os.environ, {'GH_TOKEN': 'test-token'})
-    def test_dependabot_pr_does_not_exempt_another_authors_commit(self):
+    def test_dependabot_exception_does_not_extend_to_another_authors_commit(self):
         first = self.dependency_update()
         self.git('config', 'user.name', 'Contributor')
         self.git('config', 'user.email', 'contributor@example.invalid')
         (self.root / 'file').write_text('another dependency update\n')
         second = self.commit('chore(deps): update another dependency\n\n' + policy.DEPENDABOT_SIGNOFF)
         other = {**dependabot_metadata(second), 'author': {'login': 'contributor', 'type': 'User'}}
-        event = self.event(second)
-        event['pull_request']['user'] = {'login': 'dependabot[bot]', 'type': 'Bot'}
         with mock.patch.object(policy, 'urlopen', side_effect=[
             github_response(dependabot_metadata(first)), github_response(other)
         ]) as get:
-            self.assertEqual(policy.check(event, 'pull_request'), [second + ': forbidden attribution trailer'])
+            findings, _ = self.check_push(self.push_event(second, self.base))
+            self.assertEqual(findings, [second + ': forbidden attribution trailer'])
             self.assertEqual(get.call_count, 2)
 
     @mock.patch.dict(os.environ, {'GH_TOKEN': 'test-token'})
     def test_dependabot_authentication_fails_closed_when_unavailable_or_malformed(self):
         head = self.dependency_update()
+        event = self.push_event(head, self.base)
         with mock.patch.object(policy, 'urlopen', side_effect=URLError('unavailable')):
             with self.assertRaises(URLError):
-                policy.check(self.event(head), 'pull_request')
+                self.check_push(event)
         with mock.patch.object(policy, 'urlopen', return_value=github_response([])):
-            self.assertTrue(policy.check(self.event(head), 'pull_request'))
+            self.assertTrue(self.check_push(event)[0])
         with mock.patch.object(policy, 'urlopen', return_value=BytesIO(b'not JSON')):
             with self.assertRaises(ValueError):
-                policy.check(self.event(head), 'pull_request')
+                self.check_push(event)
         with mock.patch.dict(os.environ, {}, clear=True):
             with self.assertRaises(KeyError):
-                policy.check(self.event(head), 'pull_request')
+                self.check_push(event)
+
+    def test_pull_request_checks_title_and_added_lines_but_not_commits(self):
+        self.git('checkout', '-q', '-b', 'topic')
+        (self.root / 'topic').write_text('contributed content\n')
+        self.git('add', '.')
+        self.git('-c', 'user.name=Contributor', '-c', 'user.email=contributor@example.invalid', 'commit', '-q',
+                 '-m', 'wip\n\nCo-authored-by: Someone <someone@example.invalid>\n'
+                       'Signed-off-by: Contributor <contributor@example.invalid>')
+        self.git('checkout', '-q', 'main')
+        (self.root / 'base-only').write_text('base change\n')
+        self.base = self.commit('chore: update base')
+        self.git('checkout', '-q', 'topic')
+        self.git('merge', '-q', '--no-ff', '--no-edit', 'main')
+        head = self.git('rev-parse', 'HEAD')
+        self.assertTrue(self.git('log', '-1', '--format=%s', head).startswith('Merge branch'))
+        with mock.patch.object(policy, 'api_commit', side_effect=AssertionError('commits must not be inspected')):
+            self.assertEqual(_check(self.event(head), 'pull_request', verify_commits=True), [])
+            findings = _check(self.event(head, 'Merge branch main'), 'pull_request', verify_commits=True)
+        self.assertEqual(findings, ['PR title: expected a Conventional Commit subject (' + policy.TYPES + ')'])
+
+    def test_default_branch_push_requires_verified_commits_by_github_or_owner(self):
+        records = {}
+        for label, email, verified in (('owner', policy.OWNER_EMAIL, True), ('github', 'noreply@github.com', True),
+                                       ('foreign', 'contributor@example.invalid', True),
+                                       ('unsigned', policy.OWNER_EMAIL, False)):
+            (self.root / 'file').write_text(label + ' change\n')
+            sha = self.commit('fix: record ' + label + ' change')
+            records[sha] = {'commit': {'committer': {'email': email}, 'verification': {'verified': verified}}}
+        foreign, unsigned = list(records)[2:]
+        self.git('update-ref', 'refs/remotes/origin/main', unsigned)
+        with mock.patch.object(policy, 'api_commit', side_effect=lambda _, sha: records[sha]), \
+                redirect_stdout(StringIO()):
+            findings = _check(self.push_event(unsigned, self.base, 'main'), 'push', verify_commits=True)
+        self.assertEqual(findings, [foreign + ': unexpected committer identity',
+                                    unsigned + ': commit is not Verified by GitHub'])
 
     def test_new_branch_does_not_rescan_legacy_ancestors(self):
         (self.root / 'file').write_text('new content\n')
@@ -350,11 +384,11 @@ class GitRangeTests(unittest.TestCase):
         self.assertTrue(any('whitespace error' in finding for finding in findings))
         self.assertIn(self.base + '..' + head, output)
 
-    def test_title_commit_whitespace_and_conflict_failures(self):
+    def test_title_whitespace_and_conflict_failures(self):
         (self.root / 'file').write_text('bad whitespace  \n<<<<<<< branch\n')
-        head = self.commit('Invalid subject\n\nGenerated-by: tool')
+        head = self.commit('fix: add conflicting content')
         findings = policy.check(self.event(head, 'Bad title'), 'pull_request')
-        for reason in ('PR title', 'Conventional Commit', 'attribution', 'whitespace', 'conflict marker'):
+        for reason in ('PR title', 'whitespace', 'conflict marker'):
             self.assertTrue(any(reason in line for line in findings), reason)
 
     def test_pr_merge_base_ignores_independent_base_branch_additions(self):

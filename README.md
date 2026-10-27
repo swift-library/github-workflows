@@ -17,7 +17,7 @@ for Swift packages, and publication of a package template. Required member check
 | `demo` | Builds the release executable and checks a fresh terminal recording through the presentation action's recording-only mode. |
 | `commands` | Runs each repository command in its own job in the member checkout. |
 | `result` | Requires every declared job to succeed. Only undeclared optional jobs may be skipped; failures and cancellation fail the aggregate. |
-| `policy.yml` / `policy` | Checks commit verification/identity, Conventional Commit messages and PR title, attribution, added lines, private paths and permitted product terms. Validates version declarations when `.github/release.json` exists. |
+| `policy.yml` / `policy` | On pull requests, checks the PR title, added lines, private paths and permitted product terms. On default-branch pushes and dispatch, also checks each commit's verification, committer identity, Conventional Commit subject and attribution. Validates version declarations when `.github/release.json` exists. |
 | `swift-package-release.yml` / `verify`, `publish` | Verifies the accepted commit and signed annotated tag; validates version/changelog; publishes notes without assets. Only `publish` writes contents. |
 | `organization.yml` / `organization` | Compares catalog membership, About descriptions and, in online mode, declared repository settings. All API requests are reads. |
 
@@ -116,6 +116,10 @@ It does not exempt attribution or private execution paths. The optional
 Dependabot exception permits only its exact signoff after GitHub authenticates
 the verified bot author and web-flow signer. Policy retains the family owner
 identity `10173746+showxu@users.noreply.github.com` and GitHub's web committer.
+Pull-request policy does not inspect individual commits: members squash-merge
+with the PR title as the subject and an empty body, so merge commits that
+update a pull request and external contributors' commits pass, and the
+default-branch push checks the squash commit.
 
 ## Calling release
 

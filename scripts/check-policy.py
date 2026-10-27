@@ -219,7 +219,13 @@ def check(event, event_name, *, allow_terms=frozenset(), dependabot_exception=Fa
             comparison = base
     else:
         comparison = base
-    commits = [head] if base is None else git("rev-list", "--reverse", base + ".." + head).splitlines()
+    if event_name == "pull_request":
+        # Members squash-merge with the PR title as the subject and an empty
+        # body, so pull-request commits never reach the default branch. The
+        # default-branch push checks the squash commit's message and identity.
+        commits = []
+    else:
+        commits = [head] if base is None else git("rev-list", "--reverse", base + ".." + head).splitlines()
     if event_name == "push":
         if base is None:
             print(f"::notice::Policy push: validating only {head}; previous default-branch tip unavailable or absent")
