@@ -6,10 +6,6 @@ on:
         description: Newline-separated allowed product names
         type: string
         default: ''
-      dependabot-exception:
-        description: Allow the exact signoff on an authenticated Dependabot commit
-        type: boolean
-        default: false
 permissions: {}
 jobs:
   policy:
@@ -38,7 +34,6 @@ jobs:
       env:
         GH_TOKEN: ${{ github.token }}
         ALLOW_TERMS: ${{ inputs.allow-terms }}
-        DEPENDABOT_EXCEPTION: ${{ inputs.dependabot-exception }}
       run: python3 ../.shared/scripts/check-policy.py
     - if: hashFiles('member/.github/release.json') != ''
       run: python3 .shared/scripts/validate-version --root member

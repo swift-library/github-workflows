@@ -2,7 +2,8 @@
 
 ## Unreleased
 
-- `policy.yml` checks pull requests by their title, added lines and paths only. Commit verification, committer identity, Conventional Commit subjects and attribution trailers are checked on default-branch pushes and dispatch, so merge commits that update a pull request and external contributors' commits pass.
+- `policy.yml` checks pull requests by their title, added lines and paths only. Commit verification, committer identity, Conventional Commit subjects and attribution trailers are checked on each new default-branch commit and on the commit selected for manual dispatch, so merge commits that update a pull request and external contributors' commits pass.
+- **Breaking:** `policy.yml` no longer takes the `dependabot-exception` input. Pull requests are not checked commit by commit, and default-branch commits carry no trailers. Remove the input from callers.
 
 ## 0.1.1
 
