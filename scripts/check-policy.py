@@ -8,7 +8,6 @@ from pathlib import Path
 import re
 import subprocess
 import sys
-from urllib.request import Request, urlopen
 
 
 TYPES = "build|chore|ci|docs|feat|fix|perf|refactor|revert|style|test"
@@ -17,7 +16,6 @@ ATTRIBUTION = re.compile(
     r"^\s*(?:Co-authored-by|Signed-off-by|Generated-by|Generated-with|"
     r"Made-with|Assisted-by|Powered-by):", re.IGNORECASE | re.MULTILINE
 )
-DEPENDABOT_SIGNOFF = "Signed-off-by: dependabot[bot] <support@github.com>"
 CONFLICT = re.compile(r"^(?:<{7}(?: |$)|={7}$|>{7}(?: |$)|\|{7}(?: |$))")
 ZERO = "0" * 40
 OWNER_EMAIL = "10173746+showxu@users.noreply.github.com"
@@ -105,46 +103,14 @@ def push_base(event):
     return None
 
 
-def message_findings(label, message, *, dependabot=False):
+def message_findings(label, message):
     subject = message.split("\n", 1)[0]
     findings = []
     if not SUBJECT.fullmatch(subject) or subject != subject.rstrip():
         findings.append(f"{label}: expected a Conventional Commit subject ({TYPES})")
-    if any(ATTRIBUTION.search(line) and not (dependabot and line == DEPENDABOT_SIGNOFF)
-           for line in message.split("\n")):
+    if any(ATTRIBUTION.search(line) for line in message.split("\n")):
         findings.append(f"{label}: forbidden attribution trailer")
     return findings
-
-
-def authenticated_dependabot_commit(repository, commit):
-    """Require GitHub's verified bot identity, not a spoofable Git author field."""
-    if not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repository):
-        raise ValueError("invalid repository for commit authentication")
-    request = Request(
-        f"https://api.github.com/repos/{repository}/commits/{commit}",
-        headers={"Accept": "application/vnd.github+json",
-                 "Authorization": "Bearer " + os.environ["GH_TOKEN"],
-                 "X-GitHub-Api-Version": "2022-11-28"},
-        method="GET",
-    )
-    with urlopen(request, timeout=30) as response:
-        observed = json.load(response)
-    if not isinstance(observed, dict):
-        return False
-    author = observed.get("author") or {}
-    committer = observed.get("committer") or {}
-    details = observed.get("commit") or {}
-    if not all(isinstance(value, dict) for value in (author, committer, details)):
-        return False
-    verification = details.get("verification") or {}
-    if not isinstance(verification, dict):
-        return False
-    # A verified signature by a different contributor does not authenticate
-    # a claimed bot author. Dependabot commits use GitHub's web-flow signer.
-    return (observed.get("sha") == commit
-            and author.get("login") == "dependabot[bot]" and author.get("type") == "Bot"
-            and committer.get("login") == "web-flow"
-            and verification.get("verified") is True and verification.get("reason") == "valid")
 
 
 def added_findings(patch, *, trailing_blank_start=None, allow_terms=frozenset()):
@@ -195,7 +161,7 @@ def source_range(event, event_name):
     return base, head
 
 
-def check(event, event_name, *, allow_terms=frozenset(), dependabot_exception=False, verify_commits=False):
+def check(event, event_name, *, allow_terms=frozenset(), verify_commits=False):
     if event_name == "push" and event.get("deleted"):
         print("::notice::Policy skipped branch deletion push")
         return []
@@ -219,23 +185,25 @@ def check(event, event_name, *, allow_terms=frozenset(), dependabot_exception=Fa
             comparison = base
     else:
         comparison = base
-    commits = [head] if base is None else git("rev-list", "--reverse", base + ".." + head).splitlines()
+    if event_name == "pull_request":
+        # Members squash-merge with the PR title as the subject and an empty
+        # body, so pull-request commits never reach the default branch. The
+        # default-branch push checks the squash commit's message and identity.
+        commits = []
+    else:
+        commits = [head] if base is None else git("rev-list", "--reverse", base + ".." + head).splitlines()
     if event_name == "push":
         if base is None:
             print(f"::notice::Policy push: validating only {head}; previous default-branch tip unavailable or absent")
         else:
             print(f"::notice::Policy push: validating {len(commits)} commits in {base}..{head}")
     for commit in commits:
-        # Preserve carriage returns: newline normalization would broaden the
-        # exact signoff exception to differently spelled trailer lines.
         message = subprocess.check_output(
             ["git", "show", "-s", "--format=%B", commit], stdin=subprocess.DEVNULL
         ).decode("utf-8", errors="replace")
         if verify_commits:
             findings.extend(commit_findings(commit, api_commit(event["repository"]["full_name"], commit)))
-        dependabot = (dependabot_exception and DEPENDABOT_SIGNOFF in message.split("\n")
-                      and authenticated_dependabot_commit(event["repository"]["full_name"], commit))
-        findings.extend(message_findings(commit, message, dependabot=dependabot))
+        findings.extend(message_findings(commit, message))
     if comparison is None:
         # Dispatch supplies a selected commit but no new-change range.
         return findings
@@ -267,7 +235,7 @@ def main():
     event = json.loads(Path(os.environ["GITHUB_EVENT_PATH"]).read_text())
     findings = check(event, os.environ["GITHUB_EVENT_NAME"],
                      allow_terms={term.strip().lower() for term in os.environ.get("ALLOW_TERMS", "").splitlines() if term.strip()},
-                     dependabot_exception=os.environ.get("DEPENDABOT_EXCEPTION") == "true", verify_commits=True)
+                     verify_commits=True)
     # Avoid interpreting source-controlled text as workflow commands.
     for finding in findings:
         print("FAIL " + finding.replace("\n", " | "))

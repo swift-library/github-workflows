@@ -17,7 +17,7 @@ for Swift packages, and publication of a package template. Required member check
 | `demo` | Builds the release executable and checks a fresh terminal recording through the presentation action's recording-only mode. |
 | `commands` | Runs each repository command in its own job in the member checkout. |
 | `result` | Requires every declared job to succeed. Only undeclared optional jobs may be skipped; failures and cancellation fail the aggregate. |
-| `policy.yml` / `policy` | Checks commit verification/identity, Conventional Commit messages and PR title, attribution, added lines, private paths and permitted product terms. Validates version declarations when `.github/release.json` exists. |
+| `policy.yml` / `policy` | On pull requests, checks the PR title, added lines, private paths and permitted product terms. On default-branch pushes, also checks each new commit's verification, committer identity, Conventional Commit subject and attribution; manual dispatch checks only those for the selected commit. Validates version declarations when `.github/release.json` exists. |
 | `swift-package-release.yml` / `verify`, `publish` | Verifies the accepted commit and signed annotated tag; validates version/changelog; publishes notes without assets. Only `publish` writes contents. |
 | `organization.yml` / `organization` | Compares catalog membership, About descriptions and, in online mode, declared repository settings. All API requests are reads. |
 
@@ -108,14 +108,19 @@ jobs:
     uses: swift-library/github-workflows/.github/workflows/policy.yml@<full-sha> # vX.Y.Z
     with:
       allow-terms: ''
-      dependabot-exception: false
 ```
 
 `allow-terms` is a newline-separated, case-insensitive product-name allowlist.
-It does not exempt attribution or private execution paths. The optional
-Dependabot exception permits only its exact signoff after GitHub authenticates
-the verified bot author and web-flow signer. Policy retains the family owner
-identity `10173746+showxu@users.noreply.github.com` and GitHub's web committer.
+It does not exempt attribution or private execution paths.
+
+Pull-request policy checks the title, added content and added or modified file
+paths, not individual commits. Callers must allow only squash merges with the
+PR title as the subject and an empty body; default-branch push policy then
+checks the resulting commit: GitHub verification, a committer that is GitHub's
+web committer or the family owner identity
+`10173746+showxu@users.noreply.github.com`, a Conventional Commit subject and
+no attribution trailer. It does not restrict the original author. Manual
+dispatch checks only the selected commit's verification, committer and message.
 
 ## Calling release
 
