@@ -55,6 +55,11 @@ class PolicyTests(unittest.TestCase):
 
 class GitRangeTests(unittest.TestCase):
     def setUp(self):
+        environment = {key: value for key, value in os.environ.items() if not key.startswith("GIT_")}
+        environment.update(GIT_CONFIG_NOSYSTEM="1", GIT_CONFIG_GLOBAL=os.devnull)
+        isolation = mock.patch.dict(os.environ, environment, clear=True)
+        isolation.start()
+        self.addCleanup(isolation.stop)
         self.root = ROOT / '.build/test-policy'
         self.root.mkdir(parents=True)
         self.addCleanup(shutil.rmtree, self.root)
@@ -319,7 +324,16 @@ class GitRangeTests(unittest.TestCase):
     def test_agents_instruction_files_are_tracked_and_other_agent_files_stay_private(self):
         (self.root / '.agent/instructions/shared').mkdir(parents=True)
         (self.root / '.agent/instructions/shared/route.md').write_text('---\ndescription: Route changes.\n---\n## Route\n')
-        (self.root / '.agent/agents.json').write_text('{"instructions": {"agents": ["claude-code", "codex"]}}\n')
+        (self.root / '.agent/Agents.swift').write_text(
+            '// agents-tools-version: 1.0\n'
+            'import AgentsDescription\n'
+            '\n'
+            'let agents = Agents(\n'
+            '  components: [\n'
+            '    .instructions(sections: ["guide"], agents: [.claudeCode, .codex, .cursor]),\n'
+            '  ]\n'
+            ')\n'
+        )
         (self.root / '.agent/agents.resolved').write_text('{"instructions": {"chatgpt": {}}}\n')
         head = self.commit('docs: declare agent instructions')
         self.assertEqual(policy.check(self.event(head, 'docs: declare agent instructions'), 'pull_request'), [])
@@ -328,7 +342,7 @@ class GitRangeTests(unittest.TestCase):
         (self.root / '.agent/cache').mkdir()
         (self.root / '.agent/cache/state').write_text('state\n')
         private = ('.agent/instructions/shared/.agent/cache/state', '.agent/instructions/.work' + 'space/notes.md',
-                   '.agent/instructions/PLANS.md', 'plugin/.agent/agents.json', '.agent/agents.json.bak')
+                   '.agent/instructions/PLANS.md', 'plugin/.agent/Agents.swift', '.agent/Agents.swift.bak')
         for path in private:
             (self.root / path).parent.mkdir(parents=True, exist_ok=True)
             (self.root / path).write_text('state\n')

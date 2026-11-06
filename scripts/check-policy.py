@@ -25,7 +25,7 @@ PRODUCT_TERMS = frozenset({"chatgpt", "codex", "cursor", "claude"})
 TOOL_ATTRIBUTION = re.compile(r"Generated" r" with|cursor\.com|anthropic\.com|claude\.ai|openai\.com", re.I)
 # The agents CLI's committed declaration and lock name agent IDs such as codex;
 # instruction units under .agent/instructions/ are tracked repository guidance.
-AGENT_STATE_FILES = {".agent/agents.json", ".agent/agents.resolved"}
+AGENT_STATE_FILES = {".agent/Agents.swift", ".agent/agents.resolved"}
 AGENT_INSTRUCTIONS = ".agent/instructions/"
 
 
