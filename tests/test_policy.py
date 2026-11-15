@@ -324,15 +324,13 @@ class GitRangeTests(unittest.TestCase):
     def test_agents_instruction_files_are_tracked_and_other_agent_files_stay_private(self):
         (self.root / '.agent/instructions/shared').mkdir(parents=True)
         (self.root / '.agent/instructions/shared/route.md').write_text('---\ndescription: Route changes.\n---\n## Route\n')
-        (self.root / '.agent/Agents.swift').write_text(
-            '// agents-tools-version: 1.0\n'
-            'import AgentsDescription\n'
-            '\n'
-            'let agents = Agents(\n'
-            '  components: [\n'
-            '    .instructions(sections: ["guide"], agents: [.claudeCode, .codex, .cursor]),\n'
-            '  ]\n'
-            ')\n'
+        (self.root / '.agent/agents.yaml').write_text(
+            'version: 1\n'
+            'components:\n'
+            '  - kind: instructions\n'
+            '    sections:\n'
+            '      - name: shared/route\n'
+            '    agents: [claude-code, codex, cursor]\n'
         )
         (self.root / '.agent/agents.resolved').write_text('{"instructions": {"chatgpt": {}}}\n')
         head = self.commit('docs: declare agent instructions')
@@ -342,7 +340,7 @@ class GitRangeTests(unittest.TestCase):
         (self.root / '.agent/cache').mkdir()
         (self.root / '.agent/cache/state').write_text('state\n')
         private = ('.agent/instructions/shared/.agent/cache/state', '.agent/instructions/.work' + 'space/notes.md',
-                   '.agent/instructions/PLANS.md', 'plugin/.agent/Agents.swift', '.agent/Agents.swift.bak')
+                   '.agent/instructions/PLANS.md', 'plugin/.agent/agents.yaml', '.agent/agents.yaml.bak')
         for path in private:
             (self.root / path).parent.mkdir(parents=True, exist_ok=True)
             (self.root / path).write_text('state\n')
